@@ -81,8 +81,17 @@ def get_duration(file_path):
     return 0.0
 
 def extract_audio(video_path, audio_output):
-    cmd = [FFMPEG_PATH, "-i", video_path, "-vn", "-acodec", "libmp3lame", "-q:a", "2", audio_output, "-y"]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Using explicit -vn, -q:a, and targeting standard absolute mappings
+    cmd = [
+        FFMPEG_PATH, "-y", 
+        "-i", os.path.abspath(video_path), 
+        "-vn", 
+        "-acodec", "libmp3lame", 
+        "-q:a", "2", 
+        os.path.abspath(audio_output)
+    ]
+    # Capturing output details to catch permissions or stream failures
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     return os.path.exists(audio_output) and os.path.getsize(audio_output) > 0
 
 def transcribe_audio_groq(audio_path, groq_client):
@@ -116,33 +125,36 @@ def generate_srt_from_segments(segments, output_srt):
 
 def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume=0.3):
     cmd = [
-        FFMPEG_PATH, "-i", original_audio, "-i", music_audio,
+        FFMPEG_PATH, "-y",
+        "-i", os.path.abspath(original_audio), 
+        "-i", os.path.abspath(music_audio),
         "-filter_complex", f"[1:a]volume={music_volume}[bg];[0:a][bg]amix=inputs=2:duration=first",
         "-ac", "2", "-c:a", "aac", "-b:a", "128k",
-        output_audio, "-y"
+        os.path.abspath(output_audio)
     ]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return os.path.exists(output_audio)
 
 def burn_subtitles(video_path, audio_path, srt_path, output_video):
+    # Fix backslash tracking for path handling inside the FFmpeg filter syntax engine (especially on Windows)
+    safe_srt_path = os.path.abspath(srt_path).replace("\\", "/").replace(":", "\\:")
     cmd = [
-        FFMPEG_PATH, "-i", video_path, "-i", audio_path,
+        FFMPEG_PATH, "-y",
+        "-i", os.path.abspath(video_path), 
+        "-i", os.path.abspath(audio_path),
         "-map", "0:v:0", "-map", "1:a:0",
-        "-vf", f"subtitles={srt_path}",
+        "-vf", f"subtitles={safe_srt_path}",
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k",
-        output_video, "-y"
+        os.path.abspath(output_video)
     ]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return os.path.exists(output_video)
 
 def download_file(url, output_path):
     """Direct download for Dropbox, otherwise use yt-dlp/aria2c."""
-    # --- DROPBOX: use direct HTTP only, never yt-dlp ---
     if "dropbox.com" in url:
-        # Convert shared link to direct download
-        # Remove any existing dl parameter and rlkey
         if "?dl=" in url:
             url = re.sub(r'[?&]dl=[01]', '', url)
         url = re.sub(r'[?&]rlkey=[^&]*', '', url)
@@ -166,7 +178,6 @@ def download_file(url, output_path):
             st.error(f"Direct Dropbox download failed: {e}")
             return False
 
-    # --- For non-Dropbox (YouTube, direct MP4) ---
     # Try aria2c first
     try:
         cmd = ["aria2c", "-x", "16", "-s", "16", "-k", "1M", "--console-log-level=error", "-o", output_path, url]
@@ -286,12 +297,11 @@ with col_right:
     generate_btn = st.button("🎤 Transcribe & Create Video", use_container_width=True)
 
     if generate_btn:
-        # Validate video source
         if input_method == "Upload video from computer":
             if not video_path_input or not os.path.exists(video_path_input):
                 st.error("Please upload a video file first.")
                 st.stop()
-        else:  # Paste link
+        else:
             if not video_url:
                 st.error("Please provide a video link.")
                 st.stop()
@@ -303,7 +313,6 @@ with col_right:
                         st.stop()
                     st.success("Video downloaded successfully!")
         
-        # Download music if needed
         if music_option == "Dropbox link (MP3)" and music_url:
             with st.spinner("Downloading background music..."):
                 music_path = "bg_music_downloaded.mp3"
@@ -351,7 +360,6 @@ with col_right:
                 progress.progress(50)
                 generate_srt_from_segments(segments, "captions.srt")
 
-            # Handle audio mixing
             if music_path and os.path.exists(music_path):
                 status.text("🎵 Mixing background music with original audio...")
                 progress.progress(65)
@@ -369,14 +377,15 @@ with col_right:
             if srt_file and os.path.getsize(srt_file) > 0:
                 success = burn_subtitles(video_path_input, final_audio, srt_file, "final_output.mp4")
             else:
-                # No captions, just combine video and audio
                 cmd = [
-                    FFMPEG_PATH, "-i", video_path_input, "-i", final_audio,
+                    FFMPEG_PATH, "-y",
+                    "-i", os.path.abspath(video_path_input), 
+                    "-i", os.path.abspath(final_audio),
                     "-map", "0:v:0", "-map", "1:a:0",
                     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
                     "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-b:a", "128k",
-                    "final_output.mp4", "-y"
+                    os.path.abspath("final_output.mp4")
                 ]
                 subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 success = os.path.exists("final_output.mp4")
