@@ -117,6 +117,10 @@ def generate_srt_from_segments(segments, output_srt):
             f.write(f"{text}\n\n")
 
 def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume=0.3):
+    """
+    Advanced audio blending engine with a forced resampler filter layout 
+    to blend inconsistent background tracks seamlessly.
+    """
     if not os.path.exists(music_audio) or os.path.getsize(music_audio) < 1000:
         return False
         
@@ -124,7 +128,7 @@ def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume
         FFMPEG_PATH, "-y",
         "-i", os.path.abspath(original_audio), 
         "-stream_loop", "-1", "-i", os.path.abspath(music_audio),
-        "-filter_complex", f"[1:a]volume={music_volume}[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=2",
+        "-filter_complex", f"[0:a]aresample=48000[vocal];[1:a]aresample=48000,volume={music_volume}[bg];[vocal][bg]amix=inputs=2:duration=first:dropout_transition=2,async=1",
         "-ac", "2", 
         "-c:a", "aac", 
         "-b:a", "128k",
@@ -365,7 +369,6 @@ with col_right:
             if srt_file and os.path.getsize(srt_file) > 0:
                 success, error_log = burn_subtitles(video_path_input, final_audio, srt_file, "final_output.mp4")
             
-            # The Ultimate Fix: Force safe libx264 transcoding instead of stream-copying raw HEVC layouts
             if not success:
                 st.warning("⚠️ Burning text layer via system fonts failed. Remuxing audio and video layout streams cleanly...")
                 cmd = [
@@ -398,7 +401,8 @@ with col_right:
                 
             if os.path.exists("captions.srt"):
                 with open("captions.srt", "rb") as f:
-                    st.download_button("📄 Download Captions (SRT)", f, file_name="captions.srt", mime="text/plain", use_container_width=True)
+                    # Converted output layout file into standard plain text (.txt) for easy proofreading corrections
+                    st.download_button("📄 Download Captions (TXT)", f, file_name="captions.txt", mime="text/plain", use_container_width=True)
 
         except Exception as e:
             st.error(f"Error: {str(e)}")
