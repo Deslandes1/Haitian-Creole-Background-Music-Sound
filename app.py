@@ -85,14 +85,6 @@ def extract_audio(video_path, audio_output):
     abs_video = os.path.abspath(video_path)
     abs_audio = os.path.abspath(audio_output)
     
-    # Safety Check: Loop and wait if the file exists but hasn't finished writing to disk yet
-    timeout = 30
-    start_time = time.time()
-    while os.path.exists(abs_video) and os.path.getsize(abs_video) == 0:
-        time.sleep(1)
-        if time.time() - start_time > timeout:
-            return False
-
     if not os.path.exists(abs_video) or os.path.getsize(abs_video) == 0:
         return False
 
@@ -165,7 +157,6 @@ def burn_subtitles(video_path, audio_path, srt_path, output_video):
     return os.path.exists(output_video)
 
 def download_file(url, output_path):
-    """Direct download for Dropbox, otherwise use yt-dlp/aria2c."""
     if "dropbox.com" in url:
         if "?dl=" in url:
             url = re.sub(r'[?&]dl=[01]', '', url)
@@ -181,10 +172,7 @@ def download_file(url, output_path):
             with open(output_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192*16):
                     f.write(chunk)
-            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                return True
-            else:
-                return False
+            return os.path.exists(output_path) and os.path.getsize(output_path) > 0
         except Exception as e:
             st.error(f"Direct Dropbox download failed: {e}")
             return False
@@ -215,7 +203,7 @@ def download_file(url, output_path):
         r.raise_for_status()
         with open(output_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192*16):
-                f.write(chunk)
+                r.write(chunk)
         return os.path.exists(output_path) and os.path.getsize(output_path) > 0
     except:
         return False
@@ -270,9 +258,14 @@ with col_left:
         uploaded_file = st.file_uploader("Select MP4/MOV/AVI file", type=["mp4", "mov", "avi", "mkv"])
         if uploaded_file:
             video_path_input = "uploaded_video.mp4"
+            # Stream directly to disk using shutil chunked writer to guarantee file creation
             with open(video_path_input, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-            st.video(video_path_input)
+                shutil.copyfileobj(uploaded_file, f)
+            
+            if os.path.exists(video_path_input) and os.path.getsize(video_path_input) > 0:
+                st.video(video_path_input)
+            else:
+                st.error("⚠️ System failed to allocate file buffer on disk. Try using a Dropbox link instead.")
     else:
         video_url = st.text_input("Video link (Dropbox, YouTube, direct MP4):", 
                                  value="https://www.dropbox.com/scl/fi/yzg1adtnbldj5l6zoo54j/Color-game.mp4?rlkey=4eetqcb4xcqf6nlqi8eijcsbs&st=sz2ryrro&dl=0")
@@ -290,8 +283,9 @@ with col_left:
         if music_file:
             music_path = "bg_music.mp3"
             with open(music_path, "wb") as f:
-                f.write(music_file.getbuffer())
-            st.audio(music_path)
+                shutil.copyfileobj(music_file, f)
+            if os.path.exists(music_path) and os.path.getsize(music_path) > 0:
+                st.audio(music_path)
     elif music_option == "Dropbox link (MP3)":
         music_url = st.text_input("Dropbox link to MP3 file:", 
                                  value="https://www.dropbox.com/s/example.mp3?dl=0")
@@ -309,20 +303,8 @@ with col_right:
 
     if generate_btn:
         if input_method == "Upload video from computer":
-            if not uploaded_file:
-                st.error("❌ Please choose and upload a video file first.")
-                st.stop()
-            
-            # Absolute safety check: loop to ensure data buffer stream has completely landed on disk
-            video_path_input = "uploaded_video.mp4"
-            with st.spinner("Ensuring video data is fully verified on disk..."):
-                for _ in range(15):
-                    if os.path.exists(video_path_input) and os.path.getsize(video_path_input) > 0:
-                        break
-                    time.sleep(1)
-            
-            if not os.path.exists(video_path_input) or os.path.getsize(video_path_input) == 0:
-                st.error("⏳ File upload incomplete or interrupted. Please re-upload your video and wait for the preview player to appear.")
+            if not uploaded_file or not video_path_input or not os.path.exists(video_path_input) or os.path.getsize(video_path_input) == 0:
+                st.error("❌ The uploaded video file is missing or empty. Please refresh the page and make sure the video finishes loading before pushing this button.")
                 st.stop()
         else:
             if not video_url:
@@ -369,7 +351,7 @@ with col_right:
             status.text("📤 Extracting audio tracks from source video file...")
             progress.progress(10)
             if not extract_audio(video_path_input, "extracted_audio.mp3"):
-                raise Exception("Audio extraction failed. Either the upload/download was corrupted, or the file container layout is broken.")
+                raise Exception("Audio extraction failed. The uploaded file size is 0 bytes or the video format container lacks an audio stream.")
 
             status.text("🎙️ Transcribing Haitian Creole speech with Groq Whisper...")
             progress.progress(30)
