@@ -6,7 +6,7 @@ import shutil
 import re
 from groq import Groq
 
-# yt-dlp (optional, only for YouTube)
+# yt-dlp (only for non‑Dropbox links)
 try:
     import yt_dlp
     YT_DLP_AVAILABLE = True
@@ -14,14 +14,19 @@ except ImportError:
     YT_DLP_AVAILABLE = False
     st.warning("yt-dlp not installed. YouTube links may fail.")
 
-# ================== Check FFmpeg ==================
+# ================== FFmpeg Path Fix ==================
 FFMPEG_PATH = shutil.which("ffmpeg")
-if FFMPEG_PATH:
-    st.sidebar.success(f"✅ FFmpeg found")
-else:
-    st.sidebar.error("❌ FFmpeg not found. Make sure 'packages.txt' contains 'ffmpeg' and redeploy.")
-    st.stop()
+if not FFMPEG_PATH:
+    # Common path on Streamlit Cloud (Debian)
+    if os.path.exists("/usr/bin/ffmpeg"):
+        FFMPEG_PATH = "/usr/bin/ffmpeg"
+    elif os.path.exists("/usr/local/bin/ffmpeg"):
+        FFMPEG_PATH = "/usr/local/bin/ffmpeg"
+    else:
+        st.error("❌ FFmpeg not found. Make sure 'packages.txt' contains 'ffmpeg' and redeploy.")
+        st.stop()
 
+st.sidebar.success(f"✅ FFmpeg ready: {FFMPEG_PATH}")
 os.environ["IMAGEIO_FFMPEG_EXE"] = FFMPEG_PATH
 
 # ================== Page Config ==================
@@ -78,7 +83,7 @@ def get_duration(file_path):
 def extract_audio(video_path, audio_output):
     cmd = [FFMPEG_PATH, "-i", video_path, "-vn", "-acodec", "libmp3lame", "-q:a", "2", audio_output, "-y"]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return os.path.exists(audio_output)
+    return os.path.exists(audio_output) and os.path.getsize(audio_output) > 0
 
 def transcribe_audio_groq(audio_path, groq_client):
     with open(audio_path, "rb") as audio_file:
@@ -133,23 +138,18 @@ def burn_subtitles(video_path, audio_path, srt_path, output_video):
     return os.path.exists(output_video)
 
 def download_file(url, output_path):
-    """Download a file – direct download for Dropbox, yt-dlp for others."""
-    # --- DROPBOX: Use direct HTTP download only ---
+    """Direct download for Dropbox, otherwise use yt-dlp/aria2c."""
+    # --- DROPBOX: use direct HTTP only, never yt-dlp ---
     if "dropbox.com" in url:
-        # Convert to a direct download link
-        # Remove any ?dl=0 and replace with ?dl=1
-        # Also strip extra query parameters like ?rlkey=...
+        # Convert shared link to direct download
+        # Remove any existing dl parameter and rlkey
         if "?dl=" in url:
             url = re.sub(r'[?&]dl=[01]', '', url)
-        # Remove any rlkey parameter
         url = re.sub(r'[?&]rlkey=[^&]*', '', url)
-        # Ensure we have ?dl=1
         if "?" in url:
             url += "&dl=1"
         else:
             url += "?dl=1"
-        # Also handle shared links that have /scl/fi/...?dl=0
-        # Already handled above.
         try:
             headers = {"User-Agent": "Mozilla/5.0"}
             response = requests.get(url, stream=True, timeout=120, headers=headers)
@@ -160,14 +160,14 @@ def download_file(url, output_path):
             if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                 return True
             else:
-                st.error(f"Dropbox download returned an empty file.")
+                st.error("Dropbox download returned an empty file.")
                 return False
         except Exception as e:
             st.error(f"Direct Dropbox download failed: {e}")
             return False
 
-    # --- NON-DROPBOX (YouTube, direct MP4) ---
-    # Try aria2c
+    # --- For non-Dropbox (YouTube, direct MP4) ---
+    # Try aria2c first
     try:
         cmd = ["aria2c", "-x", "16", "-s", "16", "-k", "1M", "--console-log-level=error", "-o", output_path, url]
         subprocess.run(cmd, check=True, timeout=600)
@@ -176,7 +176,7 @@ def download_file(url, output_path):
     except:
         pass
 
-    # Try yt-dlp
+    # Fallback to yt-dlp
     if YT_DLP_AVAILABLE:
         try:
             ydl_opts = {'outtmpl': output_path, 'quiet': True}
@@ -186,7 +186,7 @@ def download_file(url, output_path):
         except:
             pass
 
-    # Final fallback: direct HTTP
+    # Final direct HTTP attempt
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         r = requests.get(url, stream=True, timeout=120)
@@ -313,7 +313,6 @@ with col_right:
                 else:
                     st.success("Music downloaded successfully!")
         elif music_option == "Upload my own music":
-            # music_path already set
             pass
         else:
             music_path = None
@@ -333,7 +332,7 @@ with col_right:
             status.text("📤 Extracting audio from video...")
             progress.progress(10)
             if not extract_audio(video_path_input, "extracted_audio.mp3"):
-                raise Exception("Audio extraction failed. Ensure ffmpeg is installed correctly via packages.txt.")
+                raise Exception("Audio extraction failed. Check that ffmpeg is installed and video file is valid.")
 
             status.text("🎙️ Transcribing Haitian Creole speech with Groq Whisper...")
             progress.progress(30)
