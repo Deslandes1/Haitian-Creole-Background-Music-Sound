@@ -143,6 +143,10 @@ Ki rele revolisyon de LIA."""
         f.write(captions_content.strip())
 
 def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume=0.3):
+    """
+    KOREKSYON: Yon filtè ki pi solid ki fòse menm echantiyon (sample rate) 
+    ak menm kantite chanèl (stereo) pou evite erè 'amix' nan FFmpeg.
+    """
     if not os.path.exists(music_audio) or os.path.getsize(music_audio) < 1000:
         return False
         
@@ -150,13 +154,15 @@ def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume
         FFMPEG_PATH, "-y",
         "-i", os.path.abspath(original_audio), 
         "-stream_loop", "-1", "-i", os.path.abspath(music_audio),
-        "-filter_complex", f"[0:a]aresample=48000[vocal];[1:a]aresample=48000,volume={music_volume}[bg];[vocal][bg]amix=inputs=2:duration=first:dropout_transition=2,async=1",
+        "-filter_complex", f"[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=1.0[vocal];"
+                           f"[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume={music_volume}[bg];"
+                           f"[vocal][bg]amix=inputs=2:duration=first:dropout_transition=2",
         "-ac", "2", 
         "-c:a", "aac", 
         "-b:a", "128k",
         os.path.abspath(output_audio)
     ]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     return os.path.exists(output_audio) and os.path.getsize(output_audio) > 2000
 
 def burn_subtitles(video_path, audio_path, srt_path, output_video):
@@ -360,11 +366,9 @@ with col_right:
             status.text("🎙️ Processing Haitian Creole speech tracks...")
             progress.progress(40)
             
-            # Entegre tèks kòrèk la dirèk nan sistèm nan pou bon lekti
             generate_srt_hardcoded("captions.srt")
             st.success("✅ Tèks kreyòl la entegre ak siksè ak bèl òtograf!")
 
-            # Validate mixed audio operations cleanly
             final_audio = "extracted_audio.mp3"
             if music_path and os.path.exists(music_path):
                 status.text("🎵 Mixing background music with original audio...")
@@ -416,7 +420,6 @@ with col_right:
                 
             if os.path.exists("captions.srt"):
                 with open("captions.srt", "rb") as f:
-                    # Bouton sa a ap ba ou fichye .txt kòrèk la pou lekti ou ak koreksyon
                     st.download_button("📄 Download Captions (TXT)", f, file_name="captions.txt", mime="text/plain", use_container_width=True)
 
         except Exception as e:
