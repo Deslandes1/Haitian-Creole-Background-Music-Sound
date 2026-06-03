@@ -2,8 +2,7 @@ import streamlit as st
 import os
 import subprocess
 import requests
-import asyncio
-import re
+import shutil
 from groq import Groq
 
 # yt-dlp (optional)
@@ -13,6 +12,17 @@ try:
 except ImportError:
     YT_DLP_AVAILABLE = False
     st.warning("yt-dlp not installed. For YouTube/Dropbox links, install it: pip install yt-dlp")
+
+# ================== Check FFmpeg ==================
+FFMPEG_PATH = shutil.which("ffmpeg")
+if FFMPEG_PATH:
+    st.sidebar.success(f"✅ FFmpeg found: {FFMPEG_PATH}")
+else:
+    st.sidebar.error("❌ FFmpeg not found. Make sure 'packages.txt' contains 'ffmpeg' and redeploy.")
+    st.stop()
+
+# Optional: set environment variable for libraries that need it
+os.environ["IMAGEIO_FFMPEG_EXE"] = FFMPEG_PATH
 
 # ================== Page Config ==================
 st.set_page_config(
@@ -73,15 +83,17 @@ st.markdown("""
 def get_duration(file_path):
     if not os.path.exists(file_path):
         return 0.0
-    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file_path]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    try:
-        return float(result.stdout.decode('utf-8').strip())
-    except:
-        return 0.0
+    cmd = [FFMPEG_PATH, "-i", file_path, "-f", "null", "-"]
+    result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
+    import re
+    match = re.search(r"Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})", result.stderr)
+    if match:
+        hours, minutes, seconds = match.groups()
+        return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+    return 0.0
 
 def extract_audio(video_path, audio_output):
-    cmd = ["ffmpeg", "-i", video_path, "-vn", "-acodec", "libmp3lame", "-q:a", "2", audio_output, "-y"]
+    cmd = [FFMPEG_PATH, "-i", video_path, "-vn", "-acodec", "libmp3lame", "-q:a", "2", audio_output, "-y"]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return os.path.exists(audio_output)
 
@@ -116,7 +128,7 @@ def generate_srt_from_segments(segments, output_srt):
 
 def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume=0.3):
     cmd = [
-        "ffmpeg", "-i", original_audio, "-i", music_audio,
+        FFMPEG_PATH, "-i", original_audio, "-i", music_audio,
         "-filter_complex", f"[1:a]volume={music_volume}[bg];[0:a][bg]amix=inputs=2:duration=first",
         "-ac", "2", "-c:a", "aac", "-b:a", "128k",
         output_audio, "-y"
@@ -126,7 +138,7 @@ def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume
 
 def burn_subtitles(video_path, audio_path, srt_path, output_video):
     cmd = [
-        "ffmpeg", "-i", video_path, "-i", audio_path,
+        FFMPEG_PATH, "-i", video_path, "-i", audio_path,
         "-map", "0:v:0", "-map", "1:a:0",
         "-vf", f"subtitles={srt_path}",
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
@@ -143,7 +155,7 @@ def download_file(url, output_path):
         url = url.replace("dl=0", "dl=1")
     elif "dropbox.com" in url and "?dl=" not in url:
         url = url + "?dl=1"
-    # Try aria2c
+    # Try aria2c first (often installed)
     try:
         cmd = ["aria2c", "-x", "16", "-s", "16", "-k", "1M", "--console-log-level=error", "-o", output_path, url]
         subprocess.run(cmd, check=True, timeout=600)
@@ -151,7 +163,7 @@ def download_file(url, output_path):
             return True
     except:
         pass
-    # yt-dlp
+    # Fallback to yt-dlp
     if YT_DLP_AVAILABLE:
         try:
             ydl_opts = {'outtmpl': output_path, 'quiet': True}
@@ -160,9 +172,10 @@ def download_file(url, output_path):
             return os.path.exists(output_path)
         except:
             pass
-    # Direct HTTP
+    # Direct HTTP fallback
     try:
         r = requests.get(url, stream=True, timeout=60)
+        r.raise_for_status()
         with open(output_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192*16):
                 f.write(chunk)
@@ -308,7 +321,7 @@ with col_right:
             status.text("📤 Extracting audio from video...")
             progress.progress(10)
             if not extract_audio(video_path_input, "extracted_audio.mp3"):
-                raise Exception("Audio extraction failed. Ensure ffmpeg is installed.")
+                raise Exception("Audio extraction failed. Ensure ffmpeg is correctly installed via packages.txt.")
 
             status.text("🎙️ Transcribing Haitian Creole speech with Groq Whisper...")
             progress.progress(30)
