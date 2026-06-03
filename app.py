@@ -72,7 +72,7 @@ st.markdown("""
 def get_duration(file_path):
     if not os.path.exists(file_path):
         return 0.0
-    cmd = [FFMPEG_PATH, "-i", file_path, "-f", "null", "-"]
+    cmd = [FFMPEG_PATH, "-i", os.path.abspath(file_path), "-f", "null", "-"]
     result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
     match = re.search(r"Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})", result.stderr)
     if match:
@@ -81,17 +81,16 @@ def get_duration(file_path):
     return 0.0
 
 def extract_audio(video_path, audio_output):
-    # Using explicit -vn, -q:a, and targeting standard absolute mappings
+    # Using absolute paths to prevent FFmpeg context loss
     cmd = [
-        FFMPEG_PATH, "-y", 
+        FFMPEG_PATH, "-y",
         "-i", os.path.abspath(video_path), 
         "-vn", 
         "-acodec", "libmp3lame", 
         "-q:a", "2", 
         os.path.abspath(audio_output)
     ]
-    # Capturing output details to catch permissions or stream failures
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return os.path.exists(audio_output) and os.path.getsize(audio_output) > 0
 
 def transcribe_audio_groq(audio_path, groq_client):
@@ -136,7 +135,7 @@ def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume
     return os.path.exists(output_audio)
 
 def burn_subtitles(video_path, audio_path, srt_path, output_video):
-    # Fix backslash tracking for path handling inside the FFmpeg filter syntax engine (especially on Windows)
+    # Safely format paths for the FFmpeg subtitle video filter syntax engine
     safe_srt_path = os.path.abspath(srt_path).replace("\\", "/").replace(":", "\\:")
     cmd = [
         FFMPEG_PATH, "-y",
@@ -336,7 +335,10 @@ with col_right:
         try:
             for f in ["extracted_audio.mp3", "captions.srt", "mixed_audio.mp3", "final_output.mp4"]:
                 if os.path.exists(f):
-                    os.remove(f)
+                    try:
+                        os.remove(f)
+                    except:
+                        pass
 
             status.text("📤 Extracting audio from video...")
             progress.progress(10)
