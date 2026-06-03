@@ -117,7 +117,7 @@ def generate_srt_from_segments(segments, output_srt):
             f.write(f"{text}\n\n")
 
 def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume=0.3):
-    if not os.path.exists(music_audio) or os.path.getsize(music_audio) < 100:
+    if not os.path.exists(music_audio) or os.path.getsize(music_audio) < 5000:
         return False
         
     cmd = [
@@ -128,7 +128,7 @@ def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume
         "-ac", "2", "-c:a", "aac", "-b:a", "128k",
         os.path.abspath(output_audio)
     ]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return os.path.exists(output_audio) and os.path.getsize(output_audio) > 1000
 
 def burn_subtitles(video_path, audio_path, srt_path, output_video):
@@ -157,6 +157,10 @@ def burn_subtitles(video_path, audio_path, srt_path, output_video):
         return False, result.stderr
 
 def download_file(url, output_path):
+    """
+    Advanced download engine built to strip away tracking and web frame 
+    parameters to pull raw file streams from secure Dropbox link structures.
+    """
     if "dropbox.com" in url:
         raw_url = url
         if "dl=0" in raw_url:
@@ -173,7 +177,6 @@ def download_file(url, output_path):
             response.raise_for_status()
             
             if "text/html" in response.headers.get("Content-Type", ""):
-                st.error("❌ Link configuration error: Change your Dropbox file options to 'Anyone with link can view'.")
                 return False
 
             with open(output_path, "wb") as f:
@@ -182,8 +185,7 @@ def download_file(url, output_path):
                         f.write(chunk)
                         
             return os.path.exists(output_path) and os.path.getsize(output_path) > 5000
-        except Exception as e:
-            st.error(f"Direct Dropbox download engine failed: {e}")
+        except:
             return False
 
     try:
@@ -292,21 +294,21 @@ with col_right:
                 st.error("Please provide a video link.")
                 st.stop()
             else:
-                with st.spinner("Streaming high-speed raw link data onto server disk..."):
+                with st.spinner("Streaming high-speed video data onto server disk..."):
                     video_path_input = "downloaded_video.mp4"
                     if not download_file(video_url, video_path_input):
-                        st.error("❌ Failed to download file track.")
+                        st.error("❌ Failed to download video link layout.")
                         st.stop()
                     st.success(f"Video fully downloaded! Total Size: {os.path.getsize(video_path_input) / (1024*1024):.2f} MB")
         
         if music_option == "Dropbox link (MP3)" and music_url:
-            with st.spinner("Downloading background music..."):
+            with st.spinner("Streaming background music audio onto server..."):
                 music_path = "bg_music_downloaded.mp3"
                 if not download_file(music_url, music_path):
-                    st.warning("Failed to download music. Proceeding without background music.")
-                    music_path = None
+                    st.error("❌ Failed to download background music link. Check your Dropbox share settings to ensure 'Anyone with link can view'.")
+                    st.stop()
                 else:
-                    st.success("Music file downloaded!")
+                    st.success(f"Music file downloaded successfully! Total Size: {os.path.getsize(music_path) / (1024*1024):.2f} MB")
         elif music_option == "Upload my own music":
             if music_path and (not os.path.exists(music_path) or os.path.getsize(music_path) == 0):
                 st.warning("Music upload incomplete. Proceeding without background music.")
@@ -347,16 +349,16 @@ with col_right:
                 generate_srt_from_segments(segments, "captions.srt")
 
             # Validate mixed audio operations cleanly
-            final_audio = "extracted_audio.mp3" # default baseline
+            final_audio = "extracted_audio.mp3"
             if music_path and os.path.exists(music_path):
                 status.text("🎵 Mixing background music with original audio...")
                 progress.progress(65)
                 if mix_audio_with_music("extracted_audio.mp3", music_path, "mixed_audio.mp3", music_volume):
                     final_audio = "mixed_audio.mp3"
                 else:
-                    st.warning("⚠️ Background music mix failed due to an invalid audio codec format. Using original clean video audio instead.")
+                    st.warning("⚠️ Background music mix failed. Using original clean video audio instead.")
 
-            status.text("🎬 Burning subtitles and creating final video...")
+            status.text("🎬 Assembling track layers and creating final video file...")
             progress.progress(80)
             
             srt_file = "captions.srt" if os.path.exists("captions.srt") else None
@@ -368,7 +370,7 @@ with col_right:
             
             # Bulletproof Fallback execution sequence
             if not success:
-                st.warning("⚠️ Subtitle burn-in module bypassed due to system font rules. Assembling clean mixed audio stream directly...")
+                st.warning("⚠️ Subtitle burn-in module bypassed due to system font rules. Assembling clean audio stream directly...")
                 cmd = [
                     FFMPEG_PATH, "-y",
                     "-i", os.path.abspath(video_path_input), 
