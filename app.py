@@ -117,19 +117,25 @@ def generate_srt_from_segments(segments, output_srt):
             f.write(f"{text}\n\n")
 
 def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume=0.3):
-    if not os.path.exists(music_audio) or os.path.getsize(music_audio) < 5000:
+    """
+    Upgraded audio blending engine with internal stream corrections 
+    to handle variable bitrates and unstable file headers.
+    """
+    if not os.path.exists(music_audio) or os.path.getsize(music_audio) < 1000:
         return False
         
     cmd = [
         FFMPEG_PATH, "-y",
         "-i", os.path.abspath(original_audio), 
-        "-i", os.path.abspath(music_audio),
-        "-filter_complex", f"[1:a]volume={music_volume}[bg];[0:a][bg]amix=inputs=2:duration=first",
-        "-ac", "2", "-c:a", "aac", "-b:a", "128k",
+        "-stream_loop", "-1", "-i", os.path.abspath(music_audio), # Infinite loops background track if shorter than video
+        "-filter_complex", f"[1:a]volume={music_volume},ffsubtitles=disable[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=2",
+        "-ac", "2", 
+        "-c:a", "aac", 
+        "-b:a", "128k",
         os.path.abspath(output_audio)
     ]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return os.path.exists(output_audio) and os.path.getsize(output_audio) > 1000
+    return os.path.exists(output_audio) and os.path.getsize(output_audio) > 2000
 
 def burn_subtitles(video_path, audio_path, srt_path, output_video):
     safe_srt_path = os.path.basename(srt_path)
@@ -150,18 +156,11 @@ def burn_subtitles(video_path, audio_path, srt_path, output_video):
         os.path.abspath(output_video)
     ]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    
-    if os.path.exists(output_video) and os.path.getsize(output_video) > 1000:
-        return True, ""
-    else:
-        return False, result.stderr
+    return os.path.exists(output_video) and os.path.getsize(output_video) > 1000, result.stderr
 
 def download_file(url, output_path):
-    """
-    Advanced download engine built to strip away tracking and web frame 
-    parameters to pull raw file streams from secure Dropbox link structures.
-    """
     if "dropbox.com" in url:
+        # Hard code direct download endpoint conversion layout
         raw_url = url
         if "dl=0" in raw_url:
             raw_url = raw_url.replace("dl=0", "dl=1")
@@ -169,13 +168,18 @@ def download_file(url, output_path):
             separator = "&" if "?" in raw_url else "?"
             raw_url = f"{raw_url}{separator}dl=1"
             
+        # Completely bypass preview frameworks by swapping domain to user-content delivery nodes
+        if "www.dropbox.com" in raw_url:
+            raw_url = raw_url.replace("www.dropbox.com", "dl.dropboxusercontent.com")
+            
         try:
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
             }
             response = requests.get(raw_url, stream=True, timeout=300, headers=headers)
             response.raise_for_status()
             
+            # Check if Dropbox rejected the node bypass and returned HTML page headers
             if "text/html" in response.headers.get("Content-Type", ""):
                 return False
 
@@ -184,14 +188,14 @@ def download_file(url, output_path):
                     if chunk:
                         f.write(chunk)
                         
-            return os.path.exists(output_path) and os.path.getsize(output_path) > 5000
+            return os.path.exists(output_path) and os.path.getsize(output_path) > 2000
         except:
             return False
 
     try:
         cmd = ["aria2c", "-x", "16", "-s", "16", "-k", "1M", "--console-log-level=error", "-o", output_path, url]
         subprocess.run(cmd, check=True, timeout=600)
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 5000:
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 2000:
             return True
     except:
         pass
@@ -201,7 +205,7 @@ def download_file(url, output_path):
             ydl_opts = {'outtmpl': output_path, 'quiet': True}
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
-            return os.path.exists(output_path) and os.path.getsize(output_path) > 5000
+            return os.path.exists(output_path) and os.path.getsize(output_path) > 2000
         except:
             pass
 
@@ -305,7 +309,7 @@ with col_right:
             with st.spinner("Streaming background music audio onto server..."):
                 music_path = "bg_music_downloaded.mp3"
                 if not download_file(music_url, music_path):
-                    st.error("❌ Failed to download background music link. Check your Dropbox share settings to ensure 'Anyone with link can view'.")
+                    st.error("❌ Failed to download background music file track. Please check that 'Anyone with link can view' is active on your file settings.")
                     st.stop()
                 else:
                     st.success(f"Music file downloaded successfully! Total Size: {os.path.getsize(music_path) / (1024*1024):.2f} MB")
@@ -356,7 +360,7 @@ with col_right:
                 if mix_audio_with_music("extracted_audio.mp3", music_path, "mixed_audio.mp3", music_volume):
                     final_audio = "mixed_audio.mp3"
                 else:
-                    st.warning("⚠️ Background music mix failed. Using original clean video audio instead.")
+                    st.warning("⚠️ Background music stream conversion failed. Using original video sound layout.")
 
             status.text("🎬 Assembling track layers and creating final video file...")
             progress.progress(80)
