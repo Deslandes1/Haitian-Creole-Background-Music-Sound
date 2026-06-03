@@ -214,6 +214,8 @@ with col_left:
     st.markdown("#### 1. Source Video (Haitian Creole speech)")
     input_method = st.radio("Choose input method:", ["Upload video from computer", "Paste Dropbox/YouTube link"], horizontal=True)
     video_path_input = None
+    video_url = None
+    
     if input_method == "Upload video from computer":
         uploaded_file = st.file_uploader("Select MP4/MOV/AVI file", type=["mp4", "mov", "avi", "mkv"])
         if uploaded_file:
@@ -222,19 +224,17 @@ with col_left:
                 f.write(uploaded_file.getbuffer())
             st.video(video_path_input)
     else:
-        video_url = st.text_input("Video link (Dropbox, YouTube, direct MP4):", value="https://www.dropbox.com/scl/fi/example.mp4?dl=0")
-        if video_url and st.button("Load video", use_container_width=False):
-            with st.spinner("Downloading video..."):
-                video_path_input = "downloaded_video.mp4"
-                if download_file(video_url, video_path_input):
-                    st.success("Video downloaded successfully!")
-                    st.video(video_path_input)
-                else:
-                    st.error("Download failed. Check the link.")
+        video_url = st.text_input("Video link (Dropbox, YouTube, direct MP4):", 
+                                 value="https://www.dropbox.com/scl/fi/yzg1adtnbldj5l6zoo54j/Color-game.mp4?rlkey=4eetqcb4xcqf6nlqi8eijcsbs&st=sz2ryrro&dl=0")
+        if video_url:
+            st.info("Video will be downloaded automatically when you click 'Transcribe & Create Video'.")
+    
     st.markdown("---")
     st.markdown("#### 2. Background Music (Optional)")
-    music_option = st.radio("Music source:", ["No music", "Upload my own music", "Use built‑in sample", "Dropbox link (MP3)"], horizontal=False)
+    music_option = st.radio("Music source:", ["No music", "Upload my own music", "Dropbox link (MP3)"], horizontal=False)
     music_path = None
+    music_url = None
+    
     if music_option == "Upload my own music":
         music_file = st.file_uploader("Upload MP3/WAV", type=["mp3", "wav"])
         if music_file:
@@ -242,19 +242,12 @@ with col_left:
             with open(music_path, "wb") as f:
                 f.write(music_file.getbuffer())
             st.audio(music_path)
-    elif music_option == "Use built‑in sample":
-        st.info("Built‑in sample not included. Please upload your own music or use a Dropbox link.")
     elif music_option == "Dropbox link (MP3)":
-        music_url = st.text_input("Dropbox link to MP3 file:", value="https://www.dropbox.com/s/example.mp3?dl=0")
-        if music_url and st.button("Load background music", key="load_music"):
-            with st.spinner("Downloading music..."):
-                music_path = "bg_music_downloaded.mp3"
-                if download_file(music_url, music_path):
-                    st.success("Music downloaded successfully!")
-                    st.audio(music_path)
-                else:
-                    st.error("Failed to download music. Check the link.")
-                    music_path = None
+        music_url = st.text_input("Dropbox link to MP3 file:", 
+                                 value="https://www.dropbox.com/s/example.mp3?dl=0")
+        if music_url:
+            st.info("Music will be downloaded automatically when you click 'Transcribe & Create Video'.")
+    
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
@@ -265,69 +258,103 @@ with col_right:
     generate_btn = st.button("🎤 Transcribe & Create Video", use_container_width=True)
 
     if generate_btn:
-        if not video_path_input or not os.path.exists(video_path_input):
-            st.error("Please provide a video first.")
-        elif "GROQ_API_KEY" not in st.secrets:
-            st.error("Missing Groq API key. Add GROQ_API_KEY to your Streamlit secrets.")
+        # Validate video source
+        if input_method == "Upload video from computer":
+            if not video_path_input or not os.path.exists(video_path_input):
+                st.error("Please upload a video file first.")
+                st.stop()
+        else:  # Paste link
+            if not video_url:
+                st.error("Please provide a video link.")
+                st.stop()
+            else:
+                # Download video
+                with st.spinner("Downloading video from link..."):
+                    video_path_input = "downloaded_video.mp4"
+                    if not download_file(video_url, video_path_input):
+                        st.error("Failed to download video. Check the link and try again.")
+                        st.stop()
+                    st.success("Video downloaded successfully!")
+        
+        # Download music if needed
+        if music_option == "Dropbox link (MP3)" and music_url:
+            with st.spinner("Downloading background music..."):
+                music_path = "bg_music_downloaded.mp3"
+                if not download_file(music_url, music_path):
+                    st.warning("Failed to download music. Proceeding without background music.")
+                    music_path = None
+                else:
+                    st.success("Music downloaded successfully!")
+        elif music_option == "Upload my own music":
+            # music_path already set
+            pass
         else:
-            st.markdown('<div class="status-box">', unsafe_allow_html=True)
-            status = st.empty()
-            progress = st.progress(0)
-            try:
-                for f in ["extracted_audio.mp3", "captions.srt", "mixed_audio.mp3", "final_output.mp4"]:
-                    if os.path.exists(f):
-                        os.remove(f)
+            music_path = None
+        
+        # Now run the main pipeline
+        if "GROQ_API_KEY" not in st.secrets:
+            st.error("Missing Groq API key. Add GROQ_API_KEY to your Streamlit secrets.")
+            st.stop()
+        
+        st.markdown('<div class="status-box">', unsafe_allow_html=True)
+        status = st.empty()
+        progress = st.progress(0)
+        try:
+            # Cleanup
+            for f in ["extracted_audio.mp3", "captions.srt", "mixed_audio.mp3", "final_output.mp4"]:
+                if os.path.exists(f):
+                    os.remove(f)
 
-                status.text("📤 Extracting audio from video...")
-                progress.progress(10)
-                if not extract_audio(video_path_input, "extracted_audio.mp3"):
-                    raise Exception("Audio extraction failed. Ensure ffmpeg is installed.")
+            status.text("📤 Extracting audio from video...")
+            progress.progress(10)
+            if not extract_audio(video_path_input, "extracted_audio.mp3"):
+                raise Exception("Audio extraction failed. Ensure ffmpeg is installed.")
 
-                status.text("🎙️ Transcribing Haitian Creole speech with Groq Whisper...")
-                progress.progress(30)
-                groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-                transcription = transcribe_audio_groq("extracted_audio.mp3", groq_client)
-                segments = transcription.segments
-                if not segments:
-                    st.warning("No speech detected or transcription returned empty.")
-                else:
-                    st.info(f"Transcribed {len(segments)} segments.")
+            status.text("🎙️ Transcribing Haitian Creole speech with Groq Whisper...")
+            progress.progress(30)
+            groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+            transcription = transcribe_audio_groq("extracted_audio.mp3", groq_client)
+            segments = transcription.segments
+            if not segments:
+                st.warning("No speech detected or transcription returned empty.")
+            else:
+                st.info(f"Transcribed {len(segments)} segments.")
 
-                status.text("📝 Generating subtitle file (SRT)...")
-                progress.progress(50)
-                generate_srt_from_segments(segments, "captions.srt")
+            status.text("📝 Generating subtitle file (SRT)...")
+            progress.progress(50)
+            generate_srt_from_segments(segments, "captions.srt")
 
-                # Handle audio mixing
-                if music_path and os.path.exists(music_path):
-                    status.text("🎵 Mixing background music with original audio...")
-                    progress.progress(65)
-                    if not mix_audio_with_music("extracted_audio.mp3", music_path, "mixed_audio.mp3", music_volume):
-                        st.warning("Music mixing failed, using original audio.")
-                        final_audio = "extracted_audio.mp3"
-                    else:
-                        final_audio = "mixed_audio.mp3"
-                else:
+            # Handle audio mixing
+            if music_path and os.path.exists(music_path):
+                status.text("🎵 Mixing background music with original audio...")
+                progress.progress(65)
+                if not mix_audio_with_music("extracted_audio.mp3", music_path, "mixed_audio.mp3", music_volume):
+                    st.warning("Music mixing failed, using original audio.")
                     final_audio = "extracted_audio.mp3"
+                else:
+                    final_audio = "mixed_audio.mp3"
+            else:
+                final_audio = "extracted_audio.mp3"
 
-                status.text("🎬 Burning subtitles and creating final video...")
-                progress.progress(80)
-                if not burn_subtitles(video_path_input, final_audio, "captions.srt", "final_output.mp4"):
-                    raise Exception("Final video creation failed.")
+            status.text("🎬 Burning subtitles and creating final video...")
+            progress.progress(80)
+            if not burn_subtitles(video_path_input, final_audio, "captions.srt", "final_output.mp4"):
+                raise Exception("Final video creation failed.")
 
-                progress.progress(100)
-                status.text("✅ Done! Your video with Haitian Creole captions is ready.")
-                st.markdown('</div>', unsafe_allow_html=True)
+            progress.progress(100)
+            status.text("✅ Done! Your video with Haitian Creole captions is ready.")
+            st.markdown('</div>', unsafe_allow_html=True)
 
-                st.success("Video processed successfully!")
-                st.video("final_output.mp4")
-                with open("final_output.mp4", "rb") as f:
-                    st.download_button("⬇️ Download Video with Captions", f, file_name="creole_captioned_video.mp4", mime="video/mp4", use_container_width=True)
-                with open("captions.srt", "rb") as f:
-                    st.download_button("📄 Download Captions (SRT)", f, file_name="captions.srt", mime="text/plain", use_container_width=True)
+            st.success("Video processed successfully!")
+            st.video("final_output.mp4")
+            with open("final_output.mp4", "rb") as f:
+                st.download_button("⬇️ Download Video with Captions", f, file_name="creole_captioned_video.mp4", mime="video/mp4", use_container_width=True)
+            with open("captions.srt", "rb") as f:
+                st.download_button("📄 Download Captions (SRT)", f, file_name="captions.srt", mime="text/plain", use_container_width=True)
 
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
-                st.markdown('</div>', unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+            st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown('<div class="footer">© GlobalInternet.py – AI‑powered Haitian Creole captioning. Built by Gesner Deslandes.</div>', unsafe_allow_html=True)
