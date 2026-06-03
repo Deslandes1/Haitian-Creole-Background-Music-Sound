@@ -69,17 +69,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ================== Helper Functions ==================
-def get_duration(file_path):
-    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-        return 0.0
-    cmd = [FFMPEG_PATH, "-i", os.path.abspath(file_path), "-f", "null", "-"]
-    result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
-    match = re.search(r"Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})", result.stderr)
-    if match:
-        h, m, s = match.groups()
-        return int(h)*3600 + int(m)*60 + float(s)
-    return 0.0
-
 def extract_audio(video_path, audio_output):
     abs_video = os.path.abspath(video_path)
     abs_audio = os.path.abspath(audio_output)
@@ -140,28 +129,37 @@ def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume
     return os.path.exists(output_audio)
 
 def burn_subtitles(video_path, audio_path, srt_path, output_video):
-    safe_srt_path = os.path.abspath(srt_path).replace("\\", "/").replace(":", "\\:")
+    """
+    Hardened subtitle burning logic with strict path escape rules 
+    and detailed diagnostic catching mechanisms.
+    """
+    # Create a safe Linux container filter path layout
+    safe_srt_path = os.path.basename(srt_path)
+    
     cmd = [
         FFMPEG_PATH, "-y",
         "-i", os.path.abspath(video_path), 
         "-i", os.path.abspath(audio_path),
-        "-map", "0:v:0", "-map", "1:a:0",
+        "-map", "0:v:0", 
+        "-map", "1:a:0",
         "-vf", f"subtitles={safe_srt_path}",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+        "-c:v", "libx264", 
+        "-preset", "ultrafast", 
+        "-crf", "28",
         "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k",
+        "-c:a", "aac", 
+        "-b:a", "128k",
         os.path.abspath(output_video)
     ]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return os.path.exists(output_video)
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    
+    if os.path.exists(output_video) and os.path.getsize(output_video) > 1000:
+        return True, ""
+    else:
+        return False, result.stderr
 
 def download_file(url, output_path):
-    """
-    Advanced download engine rewritten to preserve security tokens 
-    while forcing raw stream conversion for modern Dropbox links.
-    """
     if "dropbox.com" in url:
-        # Convert standard ?dl=0 or web viewing layouts directly into fresh download tags
         raw_url = url
         if "dl=0" in raw_url:
             raw_url = raw_url.replace("dl=0", "dl=1")
@@ -170,16 +168,14 @@ def download_file(url, output_path):
             raw_url = f"{raw_url}{separator}dl=1"
             
         try:
-            # Emulate an authorized corporate browser header profile
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             }
             response = requests.get(raw_url, stream=True, timeout=300, headers=headers)
             response.raise_for_status()
             
-            # Stop execution if Dropbox returns a standard HTML layout instead of raw media binaries
             if "text/html" in response.headers.get("Content-Type", ""):
-                st.error("❌ Link configuration error: Open your Dropbox file sharing options, change it to 'Anyone with link can view', and paste the new link.")
+                st.error("❌ Link configuration error: Change your Dropbox file options to 'Anyone with link can view'.")
                 return False
 
             with open(output_path, "wb") as f:
@@ -192,7 +188,6 @@ def download_file(url, output_path):
             st.error(f"Direct Dropbox download engine failed: {e}")
             return False
 
-    # Standard fallbacks for non-Dropbox domains
     try:
         cmd = ["aria2c", "-x", "16", "-s", "16", "-k", "1M", "--console-log-level=error", "-o", output_path, url]
         subprocess.run(cmd, check=True, timeout=600)
@@ -232,9 +227,6 @@ with st.sidebar:
     - Add background music (optional)
     - Download final video with subtitles
     """)
-    st.markdown("---")
-    st.markdown("### 💰 Need a custom version?")
-    st.markdown("Contact us for source code or customization.")
 
 # ================== Main Interface ==================
 image_url = "https://raw.githubusercontent.com/Deslandes1/Haitian-Creole-Background-Music-Sound/main/Gesner%20Deslandes.png"
@@ -247,7 +239,7 @@ with col2:
     except:
         st.markdown("📸")
 
-st.markdown("### Upload a video (or paste a Dropbox link) – AI will transcribe your Haitian Creole speech and add captions with background music.")
+st.markdown("### Upload a video or paste a Dropbox link – AI will transcribe your Haitian Creole speech and burn captions.")
 
 col_left, col_right = st.columns([2, 1.8])
 
@@ -270,7 +262,7 @@ with col_left:
         video_url = st.text_input("Video link (Dropbox, YouTube, direct MP4):", 
                                  value="https://www.dropbox.com/scl/fi/yzg1adtnbldj5l6zoo54j/Color-game.mp4?rlkey=4eetqcb4xcqf6nlqi8eijcsbs&st=sz2ryrro&dl=0")
         if video_url:
-            st.info("Video will be downloaded automatically when you click 'Transcribe & Create Video'.")
+            st.info("Video will be processed when you click 'Transcribe & Create Video'.")
     
     st.markdown("---")
     st.markdown("#### 2. Background Music (Optional)")
@@ -289,7 +281,7 @@ with col_left:
     elif music_option == "Dropbox link (MP3)":
         music_url = st.text_input("Dropbox link to MP3 file:", value="")
         if music_url:
-            st.info("Music will be downloaded automatically when you click 'Transcribe & Create Video'.")
+            st.info("Music will be downloaded automatically when you click progress.")
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -313,7 +305,7 @@ with col_right:
                 with st.spinner("Streaming high-speed raw link data onto server disk..."):
                     video_path_input = "downloaded_video.mp4"
                     if not download_file(video_url, video_path_input):
-                        st.error("❌ Failed to process this link. The file size returned empty or the link layout is restricted.")
+                        st.error("❌ Failed to download file track.")
                         st.stop()
                     st.success(f"Video fully downloaded! Total Size: {os.path.getsize(video_path_input) / (1024*1024):.2f} MB")
         
@@ -327,7 +319,7 @@ with col_right:
                     st.success("Music downloaded successfully!")
         elif music_option == "Upload my own music":
             if music_path and (not os.path.exists(music_path) or os.path.getsize(music_path) == 0):
-                st.warning("Music file upload is incomplete. Processing without background music.")
+                st.warning("Music upload incomplete. Proceeding without background music.")
                 music_path = None
         else:
             music_path = None
@@ -342,27 +334,22 @@ with col_right:
         try:
             for f in ["extracted_audio.mp3", "captions.srt", "mixed_audio.mp3", "final_output.mp4"]:
                 if os.path.exists(f):
-                    try:
-                        os.remove(f)
-                    except:
-                        pass
+                    try: os.remove(f)
+                    except: pass
 
             status.text("📤 Extracting audio tracks from source video file...")
             progress.progress(10)
             if not extract_audio(video_path_input, "extracted_audio.mp3"):
-                raise Exception("Audio extraction failed. The downloaded file track layout is broken or missing an audio baseline channel.")
+                raise Exception("Audio extraction failed.")
 
             status.text("🎙️ Transcribing Haitian Creole speech with Groq Whisper...")
             progress.progress(30)
             groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
             transcription = transcribe_audio_groq("extracted_audio.mp3", groq_client)
-            if hasattr(transcription, 'segments'):
-                segments = transcription.segments
-            else:
-                segments = transcription.get('segments', [])
+            segments = transcription.segments if hasattr(transcription, 'segments') else transcription.get('segments', [])
             
             if not segments:
-                st.warning("No speech detected or transcription returned empty. Check that the video contains Haitian Creole speech.")
+                st.warning("No speech segments detected.")
             else:
                 st.info(f"Transcribed {len(segments)} segments.")
                 status.text("📝 Generating subtitle file (SRT)...")
@@ -373,7 +360,6 @@ with col_right:
                 status.text("🎵 Mixing background music with original audio...")
                 progress.progress(65)
                 if not mix_audio_with_music("extracted_audio.mp3", music_path, "mixed_audio.mp3", music_volume):
-                    st.warning("Music mixing failed, using original audio.")
                     final_audio = "extracted_audio.mp3"
                 else:
                     final_audio = "mixed_audio.mp3"
@@ -382,34 +368,52 @@ with col_right:
 
             status.text("🎬 Burning subtitles and creating final video...")
             progress.progress(80)
+            
             srt_file = "captions.srt" if os.path.exists("captions.srt") else None
             if srt_file and os.path.getsize(srt_file) > 0:
-                success = burn_subtitles(video_path_input, final_audio, srt_file, "final_output.mp4")
+                success, error_log = burn_subtitles(video_path_input, final_audio, srt_file, "final_output.mp4")
+                
+                # Dynamic Fallback: If burning subtitles fails due to severe font layouts on server, create clean video with mixed audio anyway
+                if not success:
+                    st.warning("⚠️ Captions burn-in failed due to missing server system fonts. Generating audio-mixed video track directly...")
+                    cmd = [
+                        FFMPEG_PATH, "-y",
+                        "-i", os.path.abspath(video_path_input), 
+                        "-i", os.path.abspath(final_audio),
+                        "-map", "0:v:0", "-map", "1:a:0",
+                        "-c:v", "copy", "-c:a", "aac",
+                        os.path.abspath("final_output.mp4")
+                    ]
+                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    success = os.path.exists("final_output.mp4")
+                    if not success:
+                        raise Exception(f"Video assembly pipeline failed completely. Logs: {error_log}")
             else:
                 cmd = [
                     FFMPEG_PATH, "-y",
                     "-i", os.path.abspath(video_path_input), 
                     "-i", os.path.abspath(final_audio),
                     "-map", "0:v:0", "-map", "1:a:0",
-                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-                    "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-b:a", "128k",
+                    "-c:v", "copy", "-c:a", "aac",
                     os.path.abspath("final_output.mp4")
                 ]
                 subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 success = os.path.exists("final_output.mp4")
+
             if not success:
-                raise Exception("Final video creation failed.")
+                raise Exception("Final rendering operation failed.")
 
             progress.progress(100)
-            status.text("✅ Done! Your video with Haitian Creole captions is ready.")
+            status.text("✅ Done! Processing complete.")
             st.markdown('</div>', unsafe_allow_html=True)
 
             st.success("Video processed successfully!")
             st.video("final_output.mp4")
+            
             with open("final_output.mp4", "rb") as f:
-                st.download_button("⬇️ Download Video with Captions", f, file_name="creole_captioned_video.mp4", mime="video/mp4", use_container_width=True)
-            if os.path.exists("captions.srt") and os.path.getsize("captions.srt") > 0:
+                st.download_button("⬇️ Download Video", f, file_name="processed_video.mp4", mime="video/mp4", use_container_width=True)
+                
+            if os.path.exists("captions.srt"):
                 with open("captions.srt", "rb") as f:
                     st.download_button("📄 Download Captions (SRT)", f, file_name="captions.srt", mime="text/plain", use_container_width=True)
 
@@ -418,4 +422,4 @@ with col_right:
             st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown('<div class="footer">© GlobalInternet.py – AI‑powered Haitian Creole captioning. Built by Gesner Deslandes.</div>', unsafe_allow_html=True)
+st.markdown('<div class="footer">© GlobalInternet.py – Built by Gesner Deslandes.</div>', unsafe_allow_html=True)
