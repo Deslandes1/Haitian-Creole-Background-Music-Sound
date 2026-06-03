@@ -4,6 +4,7 @@ import subprocess
 import requests
 import shutil
 import re
+import time
 from groq import Groq
 
 # yt-dlp (only for non‑Dropbox links)
@@ -70,7 +71,7 @@ st.markdown("""
 
 # ================== Helper Functions ==================
 def get_duration(file_path):
-    if not os.path.exists(file_path):
+    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
         return 0.0
     cmd = [FFMPEG_PATH, "-i", os.path.abspath(file_path), "-f", "null", "-"]
     result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
@@ -81,17 +82,23 @@ def get_duration(file_path):
     return 0.0
 
 def extract_audio(video_path, audio_output):
-    # Using absolute paths to prevent FFmpeg context loss
+    abs_video = os.path.abspath(video_path)
+    abs_audio = os.path.abspath(audio_output)
+    
+    # Extra verification step to ensure file exists and is populated before running FFmpeg
+    if not os.path.exists(abs_video) or os.path.getsize(abs_video) == 0:
+        return False
+
     cmd = [
         FFMPEG_PATH, "-y",
-        "-i", os.path.abspath(video_path), 
+        "-i", abs_video, 
         "-vn", 
         "-acodec", "libmp3lame", 
         "-q:a", "2", 
-        os.path.abspath(audio_output)
+        abs_audio
     ]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return os.path.exists(audio_output) and os.path.getsize(audio_output) > 0
+    return os.path.exists(abs_audio) and os.path.getsize(abs_audio) > 0
 
 def transcribe_audio_groq(audio_path, groq_client):
     with open(audio_path, "rb") as audio_file:
@@ -135,7 +142,6 @@ def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume
     return os.path.exists(output_audio)
 
 def burn_subtitles(video_path, audio_path, srt_path, output_video):
-    # Safely format paths for the FFmpeg subtitle video filter syntax engine
     safe_srt_path = os.path.abspath(srt_path).replace("\\", "/").replace(":", "\\:")
     cmd = [
         FFMPEG_PATH, "-y",
@@ -192,7 +198,7 @@ def download_file(url, output_path):
             ydl_opts = {'outtmpl': output_path, 'quiet': True}
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
-            return os.path.exists(output_path)
+            return os.path.exists(output_path) and os.path.getsize(output_path) > 0
         except:
             pass
 
@@ -204,7 +210,7 @@ def download_file(url, output_path):
         with open(output_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192*16):
                 f.write(chunk)
-        return os.path.exists(output_path)
+        return os.path.exists(output_path) and os.path.getsize(output_path) > 0
     except:
         return False
 
@@ -297,20 +303,20 @@ with col_right:
 
     if generate_btn:
         if input_method == "Upload video from computer":
-            if not video_path_input or not os.path.exists(video_path_input):
-                st.error("Please upload a video file first.")
+            if not uploaded_file or not video_path_input or not os.path.exists(video_path_input) or os.path.getsize(video_path_input) == 0:
+                st.error("⏳ Please wait for the video to completely finish uploading before clicking the Transcribe button.")
                 st.stop()
         else:
             if not video_url:
                 st.error("Please provide a video link.")
                 st.stop()
             else:
-                with st.spinner("Downloading video..."):
+                with st.spinner("Downloading video completely from link..."):
                     video_path_input = "downloaded_video.mp4"
                     if not download_file(video_url, video_path_input):
                         st.error("Failed to download video. Check the link and try again.")
                         st.stop()
-                    st.success("Video downloaded successfully!")
+                    st.success("Video fully downloaded!")
         
         if music_option == "Dropbox link (MP3)" and music_url:
             with st.spinner("Downloading background music..."):
@@ -321,7 +327,9 @@ with col_right:
                 else:
                     st.success("Music downloaded successfully!")
         elif music_option == "Upload my own music":
-            pass
+            if music_path and (not os.path.exists(music_path) or os.path.getsize(music_path) == 0):
+                st.warning("Music file upload is incomplete. Processing without background music.")
+                music_path = None
         else:
             music_path = None
         
@@ -340,10 +348,10 @@ with col_right:
                     except:
                         pass
 
-            status.text("📤 Extracting audio from video...")
+            status.text("📤 Extracting audio tracks from source video file...")
             progress.progress(10)
             if not extract_audio(video_path_input, "extracted_audio.mp3"):
-                raise Exception("Audio extraction failed. Check that ffmpeg is installed and video file is valid.")
+                raise Exception("Audio extraction failed. Either the upload/download was corrupted, or the file container layout is broken.")
 
             status.text("🎙️ Transcribing Haitian Creole speech with Groq Whisper...")
             progress.progress(30)
@@ -362,7 +370,7 @@ with col_right:
                 progress.progress(50)
                 generate_srt_from_segments(segments, "captions.srt")
 
-            if music_path and os.path.exists(music_path):
+            if music_path and os.path.exists(music_path) and os.path.getsize(music_path) > 0:
                 status.text("🎵 Mixing background music with original audio...")
                 progress.progress(65)
                 if not mix_audio_with_music("extracted_audio.mp3", music_path, "mixed_audio.mp3", music_volume):
