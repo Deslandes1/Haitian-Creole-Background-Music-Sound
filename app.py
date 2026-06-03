@@ -157,43 +157,46 @@ def burn_subtitles(video_path, audio_path, srt_path, output_video):
 
 def download_file(url, output_path):
     """
-    Advanced download module engineered to safely handle modern 
-    Dropbox structures by forcing raw file download layouts.
+    Advanced download engine rewritten to preserve security tokens 
+    while forcing raw stream conversion for modern Dropbox links.
     """
     if "dropbox.com" in url:
-        # Strip all trailing query components entirely to isolate the clean URL base
-        clean_url = url.split("?")[0]
-        # Force raw parameter injection to bypass interactive preview engines entirely
-        if "www.dropbox.com" in clean_url:
-            raw_url = clean_url.replace("www.dropbox.com", "dl.dropboxusercontent.com")
-        else:
-            raw_url = clean_url + "?dl=1"
+        # Convert standard ?dl=0 or web viewing layouts directly into fresh download tags
+        raw_url = url
+        if "dl=0" in raw_url:
+            raw_url = raw_url.replace("dl=0", "dl=1")
+        elif "dl=1" not in raw_url:
+            separator = "&" if "?" in raw_url else "?"
+            raw_url = f"{raw_url}{separator}dl=1"
             
         try:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-            response = requests.get(raw_url, stream=True, timeout=240, headers=headers)
+            # Emulate an authorized corporate browser header profile
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            response = requests.get(raw_url, stream=True, timeout=300, headers=headers)
             response.raise_for_status()
             
-            # Catch instances where Dropbox redirects back to an HTML error page
+            # Stop execution if Dropbox returns a standard HTML layout instead of raw media binaries
             if "text/html" in response.headers.get("Content-Type", ""):
-                st.error("❌ Dropbox link rejected direct access. Make sure the link settings allow 'Anyone with the link can view'.")
+                st.error("❌ Link configuration error: Open your Dropbox file sharing options, change it to 'Anyone with link can view', and paste the new link.")
                 return False
 
             with open(output_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=1024*1024): # 1MB blocks
+                for chunk in response.iter_content(chunk_size=1024*1024):
                     if chunk:
                         f.write(chunk)
                         
-            return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
+            return os.path.exists(output_path) and os.path.getsize(output_path) > 5000
         except Exception as e:
             st.error(f"Direct Dropbox download engine failed: {e}")
             return False
 
-    # Fallback to alternative tools if it's not a Dropbox domain
+    # Standard fallbacks for non-Dropbox domains
     try:
         cmd = ["aria2c", "-x", "16", "-s", "16", "-k", "1M", "--console-log-level=error", "-o", output_path, url]
         subprocess.run(cmd, check=True, timeout=600)
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 5000:
             return True
     except:
         pass
@@ -203,7 +206,7 @@ def download_file(url, output_path):
             ydl_opts = {'outtmpl': output_path, 'quiet': True}
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
-            return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
+            return os.path.exists(output_path) and os.path.getsize(output_path) > 5000
         except:
             pass
 
@@ -284,8 +287,7 @@ with col_left:
             if os.path.exists(music_path) and os.path.getsize(music_path) > 0:
                 st.audio(music_path)
     elif music_option == "Dropbox link (MP3)":
-        music_url = st.text_input("Dropbox link to MP3 file:", 
-                                 value="")
+        music_url = st.text_input("Dropbox link to MP3 file:", value="")
         if music_url:
             st.info("Music will be downloaded automatically when you click 'Transcribe & Create Video'.")
     
