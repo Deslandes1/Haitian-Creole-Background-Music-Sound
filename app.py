@@ -89,13 +89,22 @@ def extract_audio(video_path, audio_output):
 
 def transcribe_audio_groq(audio_path, groq_client):
     """
-    Koute odyo a epi transkri li an tan reyèl an Kreyòl Ayisyen
+    Koute odyo a epi transkri li an tan reyèl an Kreyòl Ayisyen.
+    Nou ajoute yon 'prompt' pou fòse Whisper itilize bon òtograf la pou mo teknik yo.
     """
+    # Enstriksyon gid pou evite erè frap sou lang lan ak non konpayi an
+    creole_prompt = (
+        "Mete bèl òtograf ofisyèl Kreyòl Ayisyen. Pa ekri lankre o laisyen, ekri: lang Kreyòl Ayisyen. "
+        "Pa ekri globalinternet.pi, ekri kòrèkteman: GlobalInternet.py. Sèvi ak mo tankou: "
+        "Èske ou te konnen, jistis lengwistik, diskou, kapsyon, tit, entegre."
+    )
+    
     with open(audio_path, "rb") as audio_file:
         transcription = groq_client.audio.transcriptions.create(
             file=(audio_path, audio_file.read()),
             model="whisper-large-v3",
             language="ht",
+            prompt=creole_prompt,  # Sa a ap korije òtograf la depi nan sous la
             response_format="verbose_json",
             timestamp_granularities=["segment"]
         )
@@ -120,6 +129,14 @@ def convert_groq_json_to_srt(groq_data, output_srt):
             start_time = format_time_srt(segment['start'])
             end_time = format_time_srt(segment['end'])
             text = segment['text'].strip()
+            
+            # Sekirite anplis: Si Whisper ta fè erè a toujou, nou ranplase l toupatou nan tèks la
+            text = re.sub(r"lankre\s*o\s*laisyen", "lang Kreyòl Ayisyen", text, flags=re.IGNORECASE)
+            text = re.sub(r"globalinternet\.pi", "GlobalInternet.py", text, flags=re.IGNORECASE)
+            text = re.sub(r"\byve\b", "rive", text, flags=re.IGNORECASE)
+            text = re.sub(r"\besko\b", "Èske ou", text, flags=re.IGNORECASE)
+            text = re.sub(r"\bjustis\b", "jistis", text, flags=re.IGNORECASE)
+            text = re.sub(r"\blingwistik\b", "lengwistik", text, flags=re.IGNORECASE)
             
             srt_content += f"{idx}\n{start_time} --> {end_time}\n{text}\n\n"
             
@@ -346,11 +363,11 @@ with col_right:
             status.text("🎙️ Processing Haitian Creole speech tracks via Groq Whisper...")
             progress.progress(40)
             
-            # KOREKSYON: Rele Groq pou transkripsyon an tan reyèl
+            # Rele Groq pou transkripsyon an tan reyèl
             groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
             groq_data = transcribe_audio_groq("extracted_audio.mp3", groq_client)
             
-            # Konvèti done yo an SRT dinamik pou nouvo videyo a
+            # Konvèti done yo an SRT dinamik ak koreksyon sekirite yo
             convert_groq_json_to_srt(groq_data, "captions.srt")
             st.success("✅ Tèks kreyòl la entegre ak siksè ak bèl òtograf!")
 
