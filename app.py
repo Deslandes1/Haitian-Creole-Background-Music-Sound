@@ -21,7 +21,6 @@ else:
     st.sidebar.error("❌ FFmpeg not found. Make sure 'packages.txt' contains 'ffmpeg' and redeploy.")
     st.stop()
 
-# Optional: set environment variable for libraries that need it
 os.environ["IMAGEIO_FFMPEG_EXE"] = FFMPEG_PATH
 
 # ================== Page Config ==================
@@ -34,30 +33,17 @@ st.set_page_config(
 # ================== Custom CSS ==================
 st.markdown("""
 <style>
-    .stApp {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-    }
+    .stApp { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); }
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f3460 0%, #1a1a2e 100%);
         border-right: 2px solid #e94560;
     }
-    [data-testid="stSidebar"] .stMarkdown,
-    [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] .stCaption {
+    [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stCaption {
         color: #ffffff !important;
     }
-    h1, h2, h3 {
-        color: #ffd966 !important;
-    }
-    p, li, .stMarkdown, .stCaption, .footer {
-        color: #ffffff !important;
-    }
-    .footer {
-        text-align: center;
-        margin-top: 2rem;
-        padding: 1rem;
-        border-top: 1px solid #e94560;
-    }
+    h1, h2, h3 { color: #ffd966 !important; }
+    p, li, .stMarkdown, .stCaption, .footer { color: #ffffff !important; }
+    .footer { text-align: center; margin-top: 2rem; padding: 1rem; border-top: 1px solid #e94560; }
     .stButton>button {
         background-color: #e94560 !important;
         color: white !important;
@@ -65,10 +51,7 @@ st.markdown("""
         font-weight: bold !important;
         width: 100%;
     }
-    .stButton>button:hover {
-        background-color: #ff6b6b !important;
-        transform: scale(1.02);
-    }
+    .stButton>button:hover { background-color: #ff6b6b !important; transform: scale(1.02); }
     .status-box {
         background: rgba(11, 19, 41, 0.7);
         padding: 20px;
@@ -88,8 +71,8 @@ def get_duration(file_path):
     import re
     match = re.search(r"Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})", result.stderr)
     if match:
-        hours, minutes, seconds = match.groups()
-        return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+        h, m, s = match.groups()
+        return int(h)*3600 + int(m)*60 + float(s)
     return 0.0
 
 def extract_audio(video_path, audio_output):
@@ -109,17 +92,20 @@ def transcribe_audio_groq(audio_path, groq_client):
     return transcription
 
 def generate_srt_from_segments(segments, output_srt):
+    """Convert Whisper segments (list of dicts) to SRT file."""
     def fmt_time(seconds):
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
         millis = int((seconds % 1) * 1000)
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+    
     with open(output_srt, "w", encoding="utf-8") as f:
         for i, seg in enumerate(segments, start=1):
-            start = seg.start
-            end = seg.end
-            text = seg.text.strip()
+            # segments are dictionaries, not objects
+            start = seg['start']
+            end = seg['end']
+            text = seg['text'].strip()
             if not text:
                 continue
             f.write(f"{i}\n")
@@ -150,12 +136,11 @@ def burn_subtitles(video_path, audio_path, srt_path, output_video):
     return os.path.exists(output_video)
 
 def download_file(url, output_path):
-    """Download any file (video or audio) from Dropbox/URL using yt-dlp or aria2c"""
     if "dropbox.com" in url and "dl=0" in url:
         url = url.replace("dl=0", "dl=1")
     elif "dropbox.com" in url and "?dl=" not in url:
         url = url + "?dl=1"
-    # Try aria2c first (often installed)
+    # Try aria2c
     try:
         cmd = ["aria2c", "-x", "16", "-s", "16", "-k", "1M", "--console-log-level=error", "-o", output_path, url]
         subprocess.run(cmd, check=True, timeout=600)
@@ -163,7 +148,7 @@ def download_file(url, output_path):
             return True
     except:
         pass
-    # Fallback to yt-dlp
+    # yt-dlp
     if YT_DLP_AVAILABLE:
         try:
             ydl_opts = {'outtmpl': output_path, 'quiet': True}
@@ -172,7 +157,7 @@ def download_file(url, output_path):
             return os.path.exists(output_path)
         except:
             pass
-    # Direct HTTP fallback
+    # Direct HTTP
     try:
         r = requests.get(url, stream=True, timeout=60)
         r.raise_for_status()
@@ -281,7 +266,6 @@ with col_right:
                 st.error("Please provide a video link.")
                 st.stop()
             else:
-                # Download video
                 with st.spinner("Downloading video from link..."):
                     video_path_input = "downloaded_video.mp4"
                     if not download_file(video_url, video_path_input):
@@ -299,12 +283,10 @@ with col_right:
                 else:
                     st.success("Music downloaded successfully!")
         elif music_option == "Upload my own music":
-            # music_path already set
             pass
         else:
             music_path = None
         
-        # Now run the main pipeline
         if "GROQ_API_KEY" not in st.secrets:
             st.error("Missing Groq API key. Add GROQ_API_KEY to your Streamlit secrets.")
             st.stop()
@@ -313,7 +295,6 @@ with col_right:
         status = st.empty()
         progress = st.progress(0)
         try:
-            # Cleanup
             for f in ["extracted_audio.mp3", "captions.srt", "mixed_audio.mp3", "final_output.mp4"]:
                 if os.path.exists(f):
                     os.remove(f)
@@ -321,21 +302,25 @@ with col_right:
             status.text("📤 Extracting audio from video...")
             progress.progress(10)
             if not extract_audio(video_path_input, "extracted_audio.mp3"):
-                raise Exception("Audio extraction failed. Ensure ffmpeg is correctly installed via packages.txt.")
+                raise Exception("Audio extraction failed. Ensure ffmpeg is installed correctly via packages.txt.")
 
             status.text("🎙️ Transcribing Haitian Creole speech with Groq Whisper...")
             progress.progress(30)
             groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
             transcription = transcribe_audio_groq("extracted_audio.mp3", groq_client)
-            segments = transcription.segments
+            # The transcription object has a 'segments' attribute which is a list of dicts
+            if hasattr(transcription, 'segments'):
+                segments = transcription.segments
+            else:
+                segments = transcription.get('segments', [])
+            
             if not segments:
-                st.warning("No speech detected or transcription returned empty.")
+                st.warning("No speech detected or transcription returned empty. Check that the video contains Haitian Creole speech.")
             else:
                 st.info(f"Transcribed {len(segments)} segments.")
-
-            status.text("📝 Generating subtitle file (SRT)...")
-            progress.progress(50)
-            generate_srt_from_segments(segments, "captions.srt")
+                status.text("📝 Generating subtitle file (SRT)...")
+                progress.progress(50)
+                generate_srt_from_segments(segments, "captions.srt")
 
             # Handle audio mixing
             if music_path and os.path.exists(music_path):
@@ -351,7 +336,23 @@ with col_right:
 
             status.text("🎬 Burning subtitles and creating final video...")
             progress.progress(80)
-            if not burn_subtitles(video_path_input, final_audio, "captions.srt", "final_output.mp4"):
+            # Only burn subtitles if we have an SRT file (i.e., segments were found)
+            srt_file = "captions.srt" if os.path.exists("captions.srt") else None
+            if srt_file and os.path.getsize(srt_file) > 0:
+                success = burn_subtitles(video_path_input, final_audio, srt_file, "final_output.mp4")
+            else:
+                # No captions, just combine video and audio
+                cmd = [
+                    FFMPEG_PATH, "-i", video_path_input, "-i", final_audio,
+                    "-map", "0:v:0", "-map", "1:a:0",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                    "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-b:a", "128k",
+                    "final_output.mp4", "-y"
+                ]
+                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                success = os.path.exists("final_output.mp4")
+            if not success:
                 raise Exception("Final video creation failed.")
 
             progress.progress(100)
@@ -362,8 +363,9 @@ with col_right:
             st.video("final_output.mp4")
             with open("final_output.mp4", "rb") as f:
                 st.download_button("⬇️ Download Video with Captions", f, file_name="creole_captioned_video.mp4", mime="video/mp4", use_container_width=True)
-            with open("captions.srt", "rb") as f:
-                st.download_button("📄 Download Captions (SRT)", f, file_name="captions.srt", mime="text/plain", use_container_width=True)
+            if os.path.exists("captions.srt") and os.path.getsize("captions.srt") > 0:
+                with open("captions.srt", "rb") as f:
+                    st.download_button("📄 Download Captions (SRT)", f, file_name="captions.srt", mime="text/plain", use_container_width=True)
 
         except Exception as e:
             st.error(f"Error: {str(e)}")
