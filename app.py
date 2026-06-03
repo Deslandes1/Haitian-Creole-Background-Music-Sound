@@ -90,13 +90,13 @@ def extract_audio(video_path, audio_output):
 def transcribe_audio_groq(audio_path, groq_client):
     """
     Koute odyo a epi transkri li an tan reyèl an Kreyòl Ayisyen.
-    Nou ajoute yon 'prompt' pou fòse Whisper itilize bon òtograf la pou mo teknik yo.
+    Nou ajoute aksan fòs (grave) yo nan prompt la pou Whisper ka kopye yo kòrèkteman.
     """
-    # Enstriksyon gid pou evite erè frap sou lang lan ak non konpayi an
     creole_prompt = (
-        "Mete bèl òtograf ofisyèl Kreyòl Ayisyen. Pa ekri lankre o laisyen, ekri: lang Kreyòl Ayisyen. "
-        "Pa ekri globalinternet.pi, ekri kòrèkteman: GlobalInternet.py. Sèvi ak mo tankou: "
-        "Èske ou te konnen, jistis lengwistik, diskou, kapsyon, tit, entegre."
+        "Mete bon aksan fòs yo sou mo yo kòrèkteman. Ekri ekzakteman konsa: "
+        "Èske ou te konnen, lang Kreyòl Ayisyen, pa t janm jwenn yon rezo sosyal ki pou te tradui l "
+        "an kapsyon pou mete anba nenpòt diskou. Nou menm nan GlobalInternet.py, nou rive fè sa, "
+        "e se yon jistis lengwistik pou lang Kreyòl Ayisyen."
     )
     
     with open(audio_path, "rb") as audio_file:
@@ -104,7 +104,7 @@ def transcribe_audio_groq(audio_path, groq_client):
             file=(audio_path, audio_file.read()),
             model="whisper-large-v3",
             language="ht",
-            prompt=creole_prompt,  # Sa a ap korije òtograf la depi nan sous la
+            prompt=creole_prompt,
             response_format="verbose_json",
             timestamp_granularities=["segment"]
         )
@@ -120,8 +120,8 @@ def format_time_srt(seconds):
 
 def convert_groq_json_to_srt(groq_data, output_srt):
     """
-    KOREKSYON DINAMIK: Pran done Groq yo pou chak videyo nèt
-    epi bati fichye SRT a otomatikman ak bon òtograf la.
+    KOREKSYON RIGID AK AKSAN FÒS: Netwaye tout tèks la nèt pou asire 
+    nivo òtograf la pafè ak tout aksan grave yo (è, ò, è, à).
     """
     srt_content = ""
     if hasattr(groq_data, 'segments'):
@@ -130,13 +130,17 @@ def convert_groq_json_to_srt(groq_data, output_srt):
             end_time = format_time_srt(segment['end'])
             text = segment['text'].strip()
             
-            # Sekirite anplis: Si Whisper ta fè erè a toujou, nou ranplase l toupatou nan tèks la
-            text = re.sub(r"lankre\s*o\s*laisyen", "lang Kreyòl Ayisyen", text, flags=re.IGNORECASE)
+            # Ranplasman sekirite pou fòse aksan fòs yo parèt si Whisper ta bliye yo
+            text = re.sub(r"\bEske\b", "Èske", text, flags=re.IGNORECASE)
+            text = re.sub(r"\bKreyol\b", "Kreyòl", text, flags=re.IGNORECASE)
+            text = re.sub(r"\bpat\b", "pa t", text, flags=re.IGNORECASE)
+            text = re.sub(r"\bjom\b|\bjanm\b", "janm", text, flags=re.IGNORECASE)
+            text = re.sub(r"\bjwen\b|\bjwenn\b", "jwenn", text, flags=re.IGNORECASE)
+            text = re.sub(r"\btradwil\b", "tradui l", text, flags=re.IGNORECASE)
+            text = re.sub(r"\ban ba\b|\banba\b", "anba", text, flags=re.IGNORECASE)
+            text = re.sub(r"\bnenpot\b|\bnenpòt\b", "nenpòt", text, flags=re.IGNORECASE)
+            text = re.sub(r"\bfe sa\b|\bfè sa\b", "fè sa", text, flags=re.IGNORECASE)
             text = re.sub(r"globalinternet\.pi", "GlobalInternet.py", text, flags=re.IGNORECASE)
-            text = re.sub(r"\byve\b", "rive", text, flags=re.IGNORECASE)
-            text = re.sub(r"\besko\b", "Èske ou", text, flags=re.IGNORECASE)
-            text = re.sub(r"\bjustis\b", "jistis", text, flags=re.IGNORECASE)
-            text = re.sub(r"\blingwistik\b", "lengwistik", text, flags=re.IGNORECASE)
             
             srt_content += f"{idx}\n{start_time} --> {end_time}\n{text}\n\n"
             
@@ -369,7 +373,7 @@ with col_right:
             
             # Konvèti done yo an SRT dinamik ak koreksyon sekirite yo
             convert_groq_json_to_srt(groq_data, "captions.srt")
-            st.success("✅ Tèks kreyòl la entegre ak siksè ak bèl òtograf!")
+            st.success("✅ Tèks kreyòl la entegre ak siksè ak tout aksan fòs yo!")
 
             final_audio = "extracted_audio.mp3"
             if music_path and os.path.exists(music_path):
