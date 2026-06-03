@@ -31,7 +31,7 @@ st.markdown("""
         background: linear-gradient(180deg, #0f3460 0%, #1a1a2e 100%);
         border-right: 2px solid #e94560;
     }
-    [data-testid="stSidebar"] .stMarkdown, 
+    [data-testid="stSidebar"] .stMarkdown,
     [data-testid="stSidebar"] label,
     [data-testid="stSidebar"] .stCaption {
         color: #ffffff !important;
@@ -106,7 +106,7 @@ def generate_srt_from_segments(segments, output_srt):
         secs = int(seconds % 60)
         millis = int((seconds % 1) * 1000)
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
-    
+
     with open(output_srt, "w", encoding="utf-8") as f:
         for i, seg in enumerate(segments, start=1):
             start = seg.start
@@ -149,7 +149,7 @@ def download_video(url, output_path):
         url = url.replace("dl=0", "dl=1")
     elif "dropbox.com" in url and "?dl=" not in url:
         url = url + "?dl=1"
-    
+
     # Try aria2c first
     try:
         cmd = ["aria2c", "-x", "16", "-s", "16", "-k", "1M", "--console-log-level=error", "-o", output_path, url]
@@ -158,7 +158,7 @@ def download_video(url, output_path):
             return True
     except:
         pass
-    
+
     # Fallback to yt-dlp
     if YT_DLP_AVAILABLE:
         try:
@@ -168,7 +168,7 @@ def download_video(url, output_path):
             return os.path.exists(output_path)
         except:
             pass
-    
+
     # Direct HTTP fallback
     try:
         r = requests.get(url, stream=True, timeout=60)
@@ -195,10 +195,10 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 🇭🇹 Haitian Creole Captioner")
     st.markdown("""
-    - Upload a video with Haitian Creole speech  
-    - AI transcribes words into captions  
-    - Add background music (optional)  
-    - Download final video with subtitles  
+    - Upload a video with Haitian Creole speech
+    - AI transcribes words into captions
+    - Add background music (optional)
+    - Download final video with subtitles
     """)
     st.markdown("---")
     st.markdown("### 💰 Need a custom version?")
@@ -206,7 +206,13 @@ with st.sidebar:
 
 # ================== Main Interface ==================
 # Title with profile picture (small, aligned right)
-image_url = "https://raw.githubusercontent.com/Deslandes1/Color-Software-Game/main/Gesner%20Deslandes.png"
+# --- FIXED IMAGE URL ---
+# The correct URL for GitHub raw content is:
+# https://raw.githubusercontent.com/Deslandes1/Haitian-Creole-Background-Music-Sound/main/Gesner%20Deslandes.png
+# If the image does not appear, the file might not be uploaded to that location yet.
+# You can replace this with a local path or a different URL.
+image_url = "https://raw.githubusercontent.com/Deslandes1/Haitian-Creole-Background-Music-Sound/main/Gesner%20Deslandes.png"
+
 col1, col2 = st.columns([3, 1])
 with col1:
     st.markdown("<h1 style='text-align:right; margin-bottom:0;'>🇭🇹 Haitian Creole Speech-to-Captions</h1>", unsafe_allow_html=True)
@@ -233,7 +239,7 @@ with col_left:
                 f.write(uploaded_file.getbuffer())
             st.video(video_path_input)
     else:
-        video_url = st.text_input("Video link (Dropbox, YouTube, direct MP4):", 
+        video_url = st.text_input("Video link (Dropbox, YouTube, direct MP4):",
                                  value="https://www.dropbox.com/scl/fi/example.mp4?dl=0")
         if video_url and st.button("Load video", use_container_width=False):
             with st.spinner("Downloading video..."):
@@ -265,7 +271,7 @@ with col_right:
     st.markdown(f"**Transcription language:** Haitian Creole (ht)")
     music_volume = st.slider("Background music volume (if added)", 0.0, 1.0, 0.3, step=0.05)
     generate_btn = st.button("🎤 Transcribe & Create Video", use_container_width=True)
-    
+
     if generate_btn:
         if not video_path_input or not os.path.exists(video_path_input):
             st.error("Please provide a video first.")
@@ -280,12 +286,12 @@ with col_right:
                 for f in ["extracted_audio.mp3", "transcription.json", "captions.srt", "mixed_audio.mp3", "final_output.mp4"]:
                     if os.path.exists(f):
                         os.remove(f)
-                
+
                 status.text("📤 Extracting audio from video...")
                 progress.progress(10)
                 if not extract_audio(video_path_input, "extracted_audio.mp3"):
                     raise Exception("Audio extraction failed. Ensure ffmpeg is installed.")
-                
+
                 status.text("🎙️ Transcribing Haitian Creole speech with Groq Whisper...")
                 progress.progress(30)
                 groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -295,11 +301,11 @@ with col_right:
                     st.warning("No speech detected or transcription returned empty.")
                 else:
                     st.info(f"Transcribed {len(segments)} segments.")
-                
+
                 status.text("📝 Generating subtitle file (SRT)...")
                 progress.progress(50)
                 generate_srt_from_segments(segments, "captions.srt")
-                
+
                 # Handle audio mixing
                 if music_path and os.path.exists(music_path):
                     status.text("🎵 Mixing background music with original audio...")
@@ -311,25 +317,25 @@ with col_right:
                         final_audio = "mixed_audio.mp3"
                 else:
                     final_audio = "extracted_audio.mp3"
-                
+
                 status.text("🎬 Burning subtitles and creating final video...")
                 progress.progress(80)
                 if not burn_subtitles(video_path_input, final_audio, "captions.srt", "final_output.mp4"):
                     raise Exception("Final video creation failed.")
-                
+
                 progress.progress(100)
                 status.text("✅ Done! Your video with Haitian Creole captions is ready.")
                 st.markdown('</div>', unsafe_allow_html=True)
-                
+
                 st.success("Video processed successfully!")
                 st.video("final_output.mp4")
                 with open("final_output.mp4", "rb") as f:
                     st.download_button("⬇️ Download Video with Captions", f, file_name="creole_captioned_video.mp4", mime="video/mp4", use_container_width=True)
-                
+
                 # Also provide SRT file separately
                 with open("captions.srt", "rb") as f:
                     st.download_button("📄 Download Captions (SRT)", f, file_name="captions.srt", mime="text/plain", use_container_width=True)
-                
+
             except Exception as e:
                 st.error(f"Error: {str(e)}")
                 st.markdown('</div>', unsafe_allow_html=True)
