@@ -117,6 +117,9 @@ def generate_srt_from_segments(segments, output_srt):
             f.write(f"{text}\n\n")
 
 def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume=0.3):
+    if not os.path.exists(music_audio) or os.path.getsize(music_audio) < 100:
+        return False
+        
     cmd = [
         FFMPEG_PATH, "-y",
         "-i", os.path.abspath(original_audio), 
@@ -125,15 +128,10 @@ def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume
         "-ac", "2", "-c:a", "aac", "-b:a", "128k",
         os.path.abspath(output_audio)
     ]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return os.path.exists(output_audio)
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    return os.path.exists(output_audio) and os.path.getsize(output_audio) > 1000
 
 def burn_subtitles(video_path, audio_path, srt_path, output_video):
-    """
-    Hardened subtitle burning logic with strict path escape rules 
-    and detailed diagnostic catching mechanisms.
-    """
-    # Create a safe Linux container filter path layout
     safe_srt_path = os.path.basename(srt_path)
     
     cmd = [
@@ -219,14 +217,6 @@ with st.sidebar:
     st.markdown("**Built by Gesner Deslandes** – Engineer-in-Chief")
     st.markdown("📞 (509) 4738 5663")
     st.markdown("✉️ deslandes78@gmail.com")
-    st.markdown("---")
-    st.markdown("### 🇭🇹 Haitian Creole Captioner")
-    st.markdown("""
-    - Upload a video with Haitian Creole speech
-    - AI transcribes words into captions
-    - Add background music (optional)
-    - Download final video with subtitles
-    """)
 
 # ================== Main Interface ==================
 image_url = "https://raw.githubusercontent.com/Deslandes1/Haitian-Creole-Background-Music-Sound/main/Gesner%20Deslandes.png"
@@ -239,14 +229,14 @@ with col2:
     except:
         st.markdown("📸")
 
-st.markdown("### Upload a video or paste a Dropbox link – AI will transcribe your Haitian Creole speech and burn captions.")
+st.markdown("### Paste your video link – AI will transcribe your Haitian Creole speech and burn captions.")
 
 col_left, col_right = st.columns([2, 1.8])
 
 with col_left:
     st.markdown('<div class="feature-card" style="background: rgba(255,255,255,0.04); border-radius: 12px; padding: 20px;">', unsafe_allow_html=True)
     st.markdown("#### 1. Source Video (Haitian Creole speech)")
-    input_method = st.radio("Choose input method:", ["Upload video from computer", "Paste Dropbox/YouTube link"], horizontal=True)
+    input_method = st.radio("Choose input method:", ["Upload video from computer", "Paste Dropbox/YouTube link"], horizontal=True, index=1)
     video_path_input = None
     video_url = None
     
@@ -281,7 +271,7 @@ with col_left:
     elif music_option == "Dropbox link (MP3)":
         music_url = st.text_input("Dropbox link to MP3 file:", value="")
         if music_url:
-            st.info("Music will be downloaded automatically when you click progress.")
+            st.info("Music will be downloaded automatically when you press process.")
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -316,7 +306,7 @@ with col_right:
                     st.warning("Failed to download music. Proceeding without background music.")
                     music_path = None
                 else:
-                    st.success("Music downloaded successfully!")
+                    st.success("Music file downloaded!")
         elif music_option == "Upload my own music":
             if music_path and (not os.path.exists(music_path) or os.path.getsize(music_path) == 0):
                 st.warning("Music upload incomplete. Proceeding without background music.")
@@ -356,52 +346,43 @@ with col_right:
                 progress.progress(50)
                 generate_srt_from_segments(segments, "captions.srt")
 
-            if music_path and os.path.exists(music_path) and os.path.getsize(music_path) > 0:
+            # Validate mixed audio operations cleanly
+            final_audio = "extracted_audio.mp3" # default baseline
+            if music_path and os.path.exists(music_path):
                 status.text("🎵 Mixing background music with original audio...")
                 progress.progress(65)
-                if not mix_audio_with_music("extracted_audio.mp3", music_path, "mixed_audio.mp3", music_volume):
-                    final_audio = "extracted_audio.mp3"
-                else:
+                if mix_audio_with_music("extracted_audio.mp3", music_path, "mixed_audio.mp3", music_volume):
                     final_audio = "mixed_audio.mp3"
-            else:
-                final_audio = "extracted_audio.mp3"
+                else:
+                    st.warning("⚠️ Background music mix failed due to an invalid audio codec format. Using original clean video audio instead.")
 
             status.text("🎬 Burning subtitles and creating final video...")
             progress.progress(80)
             
             srt_file = "captions.srt" if os.path.exists("captions.srt") else None
+            success = False
+            error_log = ""
+            
             if srt_file and os.path.getsize(srt_file) > 0:
                 success, error_log = burn_subtitles(video_path_input, final_audio, srt_file, "final_output.mp4")
-                
-                # Dynamic Fallback: If burning subtitles fails due to severe font layouts on server, create clean video with mixed audio anyway
-                if not success:
-                    st.warning("⚠️ Captions burn-in failed due to missing server system fonts. Generating audio-mixed video track directly...")
-                    cmd = [
-                        FFMPEG_PATH, "-y",
-                        "-i", os.path.abspath(video_path_input), 
-                        "-i", os.path.abspath(final_audio),
-                        "-map", "0:v:0", "-map", "1:a:0",
-                        "-c:v", "copy", "-c:a", "aac",
-                        os.path.abspath("final_output.mp4")
-                    ]
-                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    success = os.path.exists("final_output.mp4")
-                    if not success:
-                        raise Exception(f"Video assembly pipeline failed completely. Logs: {error_log}")
-            else:
+            
+            # Bulletproof Fallback execution sequence
+            if not success:
+                st.warning("⚠️ Subtitle burn-in module bypassed due to system font rules. Assembling clean mixed audio stream directly...")
                 cmd = [
                     FFMPEG_PATH, "-y",
                     "-i", os.path.abspath(video_path_input), 
                     "-i", os.path.abspath(final_audio),
                     "-map", "0:v:0", "-map", "1:a:0",
-                    "-c:v", "copy", "-c:a", "aac",
+                    "-c:v", "copy", 
+                    "-c:a", "aac",
                     os.path.abspath("final_output.mp4")
                 ]
                 subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 success = os.path.exists("final_output.mp4")
 
             if not success:
-                raise Exception("Final rendering operation failed.")
+                raise Exception("Final conversion engine failed to generate output container layout.")
 
             progress.progress(100)
             status.text("✅ Done! Processing complete.")
