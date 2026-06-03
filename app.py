@@ -81,13 +81,11 @@ def get_duration(file_path):
         return 0.0
 
 def extract_audio(video_path, audio_output):
-    """Extract audio from video to MP3"""
     cmd = ["ffmpeg", "-i", video_path, "-vn", "-acodec", "libmp3lame", "-q:a", "2", audio_output, "-y"]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return os.path.exists(audio_output)
 
 def transcribe_audio_groq(audio_path, groq_client):
-    """Transcribe Haitian Creole audio using Groq Whisper"""
     with open(audio_path, "rb") as audio_file:
         transcription = groq_client.audio.transcriptions.create(
             file=(audio_path, audio_file.read()),
@@ -99,14 +97,12 @@ def transcribe_audio_groq(audio_path, groq_client):
     return transcription
 
 def generate_srt_from_segments(segments, output_srt):
-    """Convert Whisper segments to SRT subtitle file"""
     def fmt_time(seconds):
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
         millis = int((seconds % 1) * 1000)
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
-
     with open(output_srt, "w", encoding="utf-8") as f:
         for i, seg in enumerate(segments, start=1):
             start = seg.start
@@ -119,7 +115,6 @@ def generate_srt_from_segments(segments, output_srt):
             f.write(f"{text}\n\n")
 
 def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume=0.3):
-    """Mix original audio with background music (music volume lowered)"""
     cmd = [
         "ffmpeg", "-i", original_audio, "-i", music_audio,
         "-filter_complex", f"[1:a]volume={music_volume}[bg];[0:a][bg]amix=inputs=2:duration=first",
@@ -130,7 +125,6 @@ def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume
     return os.path.exists(output_audio)
 
 def burn_subtitles(video_path, audio_path, srt_path, output_video):
-    """Combine video, mixed audio, and subtitles into final MP4"""
     cmd = [
         "ffmpeg", "-i", video_path, "-i", audio_path,
         "-map", "0:v:0", "-map", "1:a:0",
@@ -143,14 +137,13 @@ def burn_subtitles(video_path, audio_path, srt_path, output_video):
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return os.path.exists(output_video)
 
-def download_video(url, output_path):
-    """Download video from Dropbox/YouTube/MP4 using yt-dlp or aria2c"""
+def download_file(url, output_path):
+    """Download any file (video or audio) from Dropbox/URL using yt-dlp or aria2c"""
     if "dropbox.com" in url and "dl=0" in url:
         url = url.replace("dl=0", "dl=1")
     elif "dropbox.com" in url and "?dl=" not in url:
         url = url + "?dl=1"
-
-    # Try aria2c first
+    # Try aria2c
     try:
         cmd = ["aria2c", "-x", "16", "-s", "16", "-k", "1M", "--console-log-level=error", "-o", output_path, url]
         subprocess.run(cmd, check=True, timeout=600)
@@ -158,8 +151,7 @@ def download_video(url, output_path):
             return True
     except:
         pass
-
-    # Fallback to yt-dlp
+    # yt-dlp
     if YT_DLP_AVAILABLE:
         try:
             ydl_opts = {'outtmpl': output_path, 'quiet': True}
@@ -168,8 +160,7 @@ def download_video(url, output_path):
             return os.path.exists(output_path)
         except:
             pass
-
-    # Direct HTTP fallback
+    # Direct HTTP
     try:
         r = requests.get(url, stream=True, timeout=60)
         with open(output_path, "wb") as f:
@@ -181,7 +172,6 @@ def download_video(url, output_path):
 
 # ================== Sidebar ==================
 with st.sidebar:
-    # Logo / Branding
     st.markdown("""
     <div style="text-align: center; margin-bottom: 20px;">
         <div style="font-size: 60px;">🌍</div>
@@ -205,14 +195,7 @@ with st.sidebar:
     st.markdown("Contact us for source code or customization.")
 
 # ================== Main Interface ==================
-# Title with profile picture (small, aligned right)
-# --- FIXED IMAGE URL ---
-# The correct URL for GitHub raw content is:
-# https://raw.githubusercontent.com/Deslandes1/Haitian-Creole-Background-Music-Sound/main/Gesner%20Deslandes.png
-# If the image does not appear, the file might not be uploaded to that location yet.
-# You can replace this with a local path or a different URL.
 image_url = "https://raw.githubusercontent.com/Deslandes1/Haitian-Creole-Background-Music-Sound/main/Gesner%20Deslandes.png"
-
 col1, col2 = st.columns([3, 1])
 with col1:
     st.markdown("<h1 style='text-align:right; margin-bottom:0;'>🇭🇹 Haitian Creole Speech-to-Captions</h1>", unsafe_allow_html=True)
@@ -239,19 +222,18 @@ with col_left:
                 f.write(uploaded_file.getbuffer())
             st.video(video_path_input)
     else:
-        video_url = st.text_input("Video link (Dropbox, YouTube, direct MP4):",
-                                 value="https://www.dropbox.com/scl/fi/example.mp4?dl=0")
+        video_url = st.text_input("Video link (Dropbox, YouTube, direct MP4):", value="https://www.dropbox.com/scl/fi/example.mp4?dl=0")
         if video_url and st.button("Load video", use_container_width=False):
             with st.spinner("Downloading video..."):
                 video_path_input = "downloaded_video.mp4"
-                if download_video(video_url, video_path_input):
+                if download_file(video_url, video_path_input):
                     st.success("Video downloaded successfully!")
                     st.video(video_path_input)
                 else:
                     st.error("Download failed. Check the link.")
     st.markdown("---")
     st.markdown("#### 2. Background Music (Optional)")
-    music_option = st.radio("Background music:", ["No music", "Upload my own music", "Use built‑in sample"], horizontal=True)
+    music_option = st.radio("Music source:", ["No music", "Upload my own music", "Use built‑in sample", "Dropbox link (MP3)"], horizontal=False)
     music_path = None
     if music_option == "Upload my own music":
         music_file = st.file_uploader("Upload MP3/WAV", type=["mp3", "wav"])
@@ -261,8 +243,18 @@ with col_left:
                 f.write(music_file.getbuffer())
             st.audio(music_path)
     elif music_option == "Use built‑in sample":
-        # Download a free royalty‑free sample (optional) – we'll just use a silent dummy or let user upload
-        st.info("Built‑in sample not included. Please upload your own music.")
+        st.info("Built‑in sample not included. Please upload your own music or use a Dropbox link.")
+    elif music_option == "Dropbox link (MP3)":
+        music_url = st.text_input("Dropbox link to MP3 file:", value="https://www.dropbox.com/s/example.mp3?dl=0")
+        if music_url and st.button("Load background music", key="load_music"):
+            with st.spinner("Downloading music..."):
+                music_path = "bg_music_downloaded.mp3"
+                if download_file(music_url, music_path):
+                    st.success("Music downloaded successfully!")
+                    st.audio(music_path)
+                else:
+                    st.error("Failed to download music. Check the link.")
+                    music_path = None
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_right:
@@ -282,8 +274,7 @@ with col_right:
             status = st.empty()
             progress = st.progress(0)
             try:
-                # Clean previous files
-                for f in ["extracted_audio.mp3", "transcription.json", "captions.srt", "mixed_audio.mp3", "final_output.mp4"]:
+                for f in ["extracted_audio.mp3", "captions.srt", "mixed_audio.mp3", "final_output.mp4"]:
                     if os.path.exists(f):
                         os.remove(f)
 
@@ -331,8 +322,6 @@ with col_right:
                 st.video("final_output.mp4")
                 with open("final_output.mp4", "rb") as f:
                     st.download_button("⬇️ Download Video with Captions", f, file_name="creole_captioned_video.mp4", mime="video/mp4", use_container_width=True)
-
-                # Also provide SRT file separately
                 with open("captions.srt", "rb") as f:
                     st.download_button("📄 Download Captions (SRT)", f, file_name="captions.srt", mime="text/plain", use_container_width=True)
 
