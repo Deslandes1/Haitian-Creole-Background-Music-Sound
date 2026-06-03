@@ -85,7 +85,14 @@ def extract_audio(video_path, audio_output):
     abs_video = os.path.abspath(video_path)
     abs_audio = os.path.abspath(audio_output)
     
-    # Extra verification step to ensure file exists and is populated before running FFmpeg
+    # Safety Check: Loop and wait if the file exists but hasn't finished writing to disk yet
+    timeout = 30
+    start_time = time.time()
+    while os.path.exists(abs_video) and os.path.getsize(abs_video) == 0:
+        time.sleep(1)
+        if time.time() - start_time > timeout:
+            return False
+
     if not os.path.exists(abs_video) or os.path.getsize(abs_video) == 0:
         return False
 
@@ -177,7 +184,6 @@ def download_file(url, output_path):
             if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                 return True
             else:
-                st.error("Dropbox download returned an empty file.")
                 return False
         except Exception as e:
             st.error(f"Direct Dropbox download failed: {e}")
@@ -303,8 +309,20 @@ with col_right:
 
     if generate_btn:
         if input_method == "Upload video from computer":
-            if not uploaded_file or not video_path_input or not os.path.exists(video_path_input) or os.path.getsize(video_path_input) == 0:
-                st.error("⏳ Please wait for the video to completely finish uploading before clicking the Transcribe button.")
+            if not uploaded_file:
+                st.error("❌ Please choose and upload a video file first.")
+                st.stop()
+            
+            # Absolute safety check: loop to ensure data buffer stream has completely landed on disk
+            video_path_input = "uploaded_video.mp4"
+            with st.spinner("Ensuring video data is fully verified on disk..."):
+                for _ in range(15):
+                    if os.path.exists(video_path_input) and os.path.getsize(video_path_input) > 0:
+                        break
+                    time.sleep(1)
+            
+            if not os.path.exists(video_path_input) or os.path.getsize(video_path_input) == 0:
+                st.error("⏳ File upload incomplete or interrupted. Please re-upload your video and wait for the preview player to appear.")
                 st.stop()
         else:
             if not video_url:
