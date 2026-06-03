@@ -117,18 +117,14 @@ def generate_srt_from_segments(segments, output_srt):
             f.write(f"{text}\n\n")
 
 def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume=0.3):
-    """
-    Upgraded audio blending engine with internal stream corrections 
-    to handle variable bitrates and unstable file headers.
-    """
     if not os.path.exists(music_audio) or os.path.getsize(music_audio) < 1000:
         return False
         
     cmd = [
         FFMPEG_PATH, "-y",
         "-i", os.path.abspath(original_audio), 
-        "-stream_loop", "-1", "-i", os.path.abspath(music_audio), # Infinite loops background track if shorter than video
-        "-filter_complex", f"[1:a]volume={music_volume},ffsubtitles=disable[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=2",
+        "-stream_loop", "-1", "-i", os.path.abspath(music_audio),
+        "-filter_complex", f"[1:a]volume={music_volume}[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=2",
         "-ac", "2", 
         "-c:a", "aac", 
         "-b:a", "128k",
@@ -160,7 +156,6 @@ def burn_subtitles(video_path, audio_path, srt_path, output_video):
 
 def download_file(url, output_path):
     if "dropbox.com" in url:
-        # Hard code direct download endpoint conversion layout
         raw_url = url
         if "dl=0" in raw_url:
             raw_url = raw_url.replace("dl=0", "dl=1")
@@ -168,7 +163,6 @@ def download_file(url, output_path):
             separator = "&" if "?" in raw_url else "?"
             raw_url = f"{raw_url}{separator}dl=1"
             
-        # Completely bypass preview frameworks by swapping domain to user-content delivery nodes
         if "www.dropbox.com" in raw_url:
             raw_url = raw_url.replace("www.dropbox.com", "dl.dropboxusercontent.com")
             
@@ -179,7 +173,6 @@ def download_file(url, output_path):
             response = requests.get(raw_url, stream=True, timeout=300, headers=headers)
             response.raise_for_status()
             
-            # Check if Dropbox rejected the node bypass and returned HTML page headers
             if "text/html" in response.headers.get("Content-Type", ""):
                 return False
 
@@ -309,8 +302,8 @@ with col_right:
             with st.spinner("Streaming background music audio onto server..."):
                 music_path = "bg_music_downloaded.mp3"
                 if not download_file(music_url, music_path):
-                    st.error("❌ Failed to download background music file track. Please check that 'Anyone with link can view' is active on your file settings.")
-                    st.stop()
+                    st.warning("⚠️ Background music stream failed to download. Bypassing music channel...")
+                    music_path = None
                 else:
                     st.success(f"Music file downloaded successfully! Total Size: {os.path.getsize(music_path) / (1024*1024):.2f} MB")
         elif music_option == "Upload my own music":
@@ -360,7 +353,7 @@ with col_right:
                 if mix_audio_with_music("extracted_audio.mp3", music_path, "mixed_audio.mp3", music_volume):
                     final_audio = "mixed_audio.mp3"
                 else:
-                    st.warning("⚠️ Background music stream conversion failed. Using original video sound layout.")
+                    st.warning("⚠️ Background music mix failed. Using original video sound instead.")
 
             status.text("🎬 Assembling track layers and creating final video file...")
             progress.progress(80)
@@ -372,20 +365,23 @@ with col_right:
             if srt_file and os.path.getsize(srt_file) > 0:
                 success, error_log = burn_subtitles(video_path_input, final_audio, srt_file, "final_output.mp4")
             
-            # Bulletproof Fallback execution sequence
+            # The Ultimate Fix: Force safe libx264 transcoding instead of stream-copying raw HEVC layouts
             if not success:
-                st.warning("⚠️ Subtitle burn-in module bypassed due to system font rules. Assembling clean audio stream directly...")
+                st.warning("⚠️ Burning text layer via system fonts failed. Remuxing audio and video layout streams cleanly...")
                 cmd = [
                     FFMPEG_PATH, "-y",
                     "-i", os.path.abspath(video_path_input), 
                     "-i", os.path.abspath(final_audio),
                     "-map", "0:v:0", "-map", "1:a:0",
-                    "-c:v", "copy", 
+                    "-c:v", "libx264", 
+                    "-preset", "ultrafast", 
+                    "-crf", "26",
                     "-c:a", "aac",
+                    "-b:a", "128k",
                     os.path.abspath("final_output.mp4")
                 ]
                 subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                success = os.path.exists("final_output.mp4")
+                success = os.path.exists("final_output.mp4") and os.path.getsize("final_output.mp4") > 5000
 
             if not success:
                 raise Exception("Final conversion engine failed to generate output container layout.")
