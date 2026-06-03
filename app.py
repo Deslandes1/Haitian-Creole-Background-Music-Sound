@@ -18,7 +18,6 @@ except ImportError:
 # ================== FFmpeg Path Fix ==================
 FFMPEG_PATH = shutil.which("ffmpeg")
 if not FFMPEG_PATH:
-    # Common path on Streamlit Cloud (Debian)
     if os.path.exists("/usr/bin/ffmpeg"):
         FFMPEG_PATH = "/usr/bin/ffmpeg"
     elif os.path.exists("/usr/local/bin/ffmpeg"):
@@ -157,56 +156,58 @@ def burn_subtitles(video_path, audio_path, srt_path, output_video):
     return os.path.exists(output_video)
 
 def download_file(url, output_path):
+    """
+    Advanced download module engineered to safely handle modern 
+    Dropbox structures by forcing raw file download layouts.
+    """
     if "dropbox.com" in url:
-        if "?dl=" in url:
-            url = re.sub(r'[?&]dl=[01]', '', url)
-        url = re.sub(r'[?&]rlkey=[^&]*', '', url)
-        if "?" in url:
-            url += "&dl=1"
+        # Strip all trailing query components entirely to isolate the clean URL base
+        clean_url = url.split("?")[0]
+        # Force raw parameter injection to bypass interactive preview engines entirely
+        if "www.dropbox.com" in clean_url:
+            raw_url = clean_url.replace("www.dropbox.com", "dl.dropboxusercontent.com")
         else:
-            url += "?dl=1"
+            raw_url = clean_url + "?dl=1"
+            
         try:
-            headers = {"User-Agent": "Mozilla/5.0"}
-            response = requests.get(url, stream=True, timeout=120, headers=headers)
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            response = requests.get(raw_url, stream=True, timeout=240, headers=headers)
             response.raise_for_status()
+            
+            # Catch instances where Dropbox redirects back to an HTML error page
+            if "text/html" in response.headers.get("Content-Type", ""):
+                st.error("❌ Dropbox link rejected direct access. Make sure the link settings allow 'Anyone with the link can view'.")
+                return False
+
             with open(output_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192*16):
-                    f.write(chunk)
-            return os.path.exists(output_path) and os.path.getsize(output_path) > 0
+                for chunk in response.iter_content(chunk_size=1024*1024): # 1MB blocks
+                    if chunk:
+                        f.write(chunk)
+                        
+            return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
         except Exception as e:
-            st.error(f"Direct Dropbox download failed: {e}")
+            st.error(f"Direct Dropbox download engine failed: {e}")
             return False
 
-    # Try aria2c first
+    # Fallback to alternative tools if it's not a Dropbox domain
     try:
         cmd = ["aria2c", "-x", "16", "-s", "16", "-k", "1M", "--console-log-level=error", "-o", output_path, url]
         subprocess.run(cmd, check=True, timeout=600)
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
             return True
     except:
         pass
 
-    # Fallback to yt-dlp
     if YT_DLP_AVAILABLE:
         try:
             ydl_opts = {'outtmpl': output_path, 'quiet': True}
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
-            return os.path.exists(output_path) and os.path.getsize(output_path) > 0
+            return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
         except:
             pass
 
-    # Final direct HTTP attempt
-    try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, stream=True, timeout=120)
-        r.raise_for_status()
-        with open(output_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192*16):
-                r.write(chunk)
-        return os.path.exists(output_path) and os.path.getsize(output_path) > 0
-    except:
-        return False
+    return False
 
 # ================== Sidebar ==================
 with st.sidebar:
@@ -258,14 +259,10 @@ with col_left:
         uploaded_file = st.file_uploader("Select MP4/MOV/AVI file", type=["mp4", "mov", "avi", "mkv"])
         if uploaded_file:
             video_path_input = "uploaded_video.mp4"
-            # Stream directly to disk using shutil chunked writer to guarantee file creation
             with open(video_path_input, "wb") as f:
                 shutil.copyfileobj(uploaded_file, f)
-            
             if os.path.exists(video_path_input) and os.path.getsize(video_path_input) > 0:
                 st.video(video_path_input)
-            else:
-                st.error("⚠️ System failed to allocate file buffer on disk. Try using a Dropbox link instead.")
     else:
         video_url = st.text_input("Video link (Dropbox, YouTube, direct MP4):", 
                                  value="https://www.dropbox.com/scl/fi/yzg1adtnbldj5l6zoo54j/Color-game.mp4?rlkey=4eetqcb4xcqf6nlqi8eijcsbs&st=sz2ryrro&dl=0")
@@ -288,7 +285,7 @@ with col_left:
                 st.audio(music_path)
     elif music_option == "Dropbox link (MP3)":
         music_url = st.text_input("Dropbox link to MP3 file:", 
-                                 value="https://www.dropbox.com/s/example.mp3?dl=0")
+                                 value="")
         if music_url:
             st.info("Music will be downloaded automatically when you click 'Transcribe & Create Video'.")
     
@@ -304,19 +301,19 @@ with col_right:
     if generate_btn:
         if input_method == "Upload video from computer":
             if not uploaded_file or not video_path_input or not os.path.exists(video_path_input) or os.path.getsize(video_path_input) == 0:
-                st.error("❌ The uploaded video file is missing or empty. Please refresh the page and make sure the video finishes loading before pushing this button.")
+                st.error("❌ The uploaded video file is missing or empty.")
                 st.stop()
         else:
             if not video_url:
                 st.error("Please provide a video link.")
                 st.stop()
             else:
-                with st.spinner("Downloading video completely from link..."):
+                with st.spinner("Streaming high-speed raw link data onto server disk..."):
                     video_path_input = "downloaded_video.mp4"
                     if not download_file(video_url, video_path_input):
-                        st.error("Failed to download video. Check the link and try again.")
+                        st.error("❌ Failed to process this link. The file size returned empty or the link layout is restricted.")
                         st.stop()
-                    st.success("Video fully downloaded!")
+                    st.success(f"Video fully downloaded! Total Size: {os.path.getsize(video_path_input) / (1024*1024):.2f} MB")
         
         if music_option == "Dropbox link (MP3)" and music_url:
             with st.spinner("Downloading background music..."):
@@ -351,7 +348,7 @@ with col_right:
             status.text("📤 Extracting audio tracks from source video file...")
             progress.progress(10)
             if not extract_audio(video_path_input, "extracted_audio.mp3"):
-                raise Exception("Audio extraction failed. The uploaded file size is 0 bytes or the video format container lacks an audio stream.")
+                raise Exception("Audio extraction failed. The downloaded file track layout is broken or missing an audio baseline channel.")
 
             status.text("🎙️ Transcribing Haitian Creole speech with Groq Whisper...")
             progress.progress(30)
