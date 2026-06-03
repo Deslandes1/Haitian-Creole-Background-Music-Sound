@@ -5,13 +5,13 @@ import requests
 import shutil
 from groq import Groq
 
-# yt-dlp (optional)
+# yt-dlp (optional, still used for YouTube)
 try:
     import yt_dlp
     YT_DLP_AVAILABLE = True
 except ImportError:
     YT_DLP_AVAILABLE = False
-    st.warning("yt-dlp not installed. For YouTube/Dropbox links, install it: pip install yt-dlp")
+    st.warning("yt-dlp not installed. For YouTube/Vimeo, install it: pip install yt-dlp")
 
 # ================== Check FFmpeg ==================
 FFMPEG_PATH = shutil.which("ffmpeg")
@@ -85,24 +85,21 @@ def transcribe_audio_groq(audio_path, groq_client):
         transcription = groq_client.audio.transcriptions.create(
             file=(audio_path, audio_file.read()),
             model="whisper-large-v3",
-            language="ht",  # Haitian Creole
+            language="ht",
             response_format="verbose_json",
             timestamp_granularities=["segment"]
         )
     return transcription
 
 def generate_srt_from_segments(segments, output_srt):
-    """Convert Whisper segments (list of dicts) to SRT file."""
     def fmt_time(seconds):
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
         millis = int((seconds % 1) * 1000)
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
-    
     with open(output_srt, "w", encoding="utf-8") as f:
         for i, seg in enumerate(segments, start=1):
-            # segments are dictionaries, not objects
             start = seg['start']
             end = seg['end']
             text = seg['text'].strip()
@@ -136,11 +133,29 @@ def burn_subtitles(video_path, audio_path, srt_path, output_video):
     return os.path.exists(output_video)
 
 def download_file(url, output_path):
-    if "dropbox.com" in url and "dl=0" in url:
-        url = url.replace("dl=0", "dl=1")
-    elif "dropbox.com" in url and "?dl=" not in url:
-        url = url + "?dl=1"
-    # Try aria2c
+    """Robust download for Dropbox (direct HTTP) and YouTube (yt-dlp)."""
+    # Handle Dropbox: convert to direct download and use requests
+    if "dropbox.com" in url:
+        # Ensure dl=1
+        if "dl=0" in url:
+            url = url.replace("dl=0", "dl=1")
+        elif "?dl=" not in url:
+            url = url + "?dl=1"
+        # Direct HTTP download
+        try:
+            headers = {"User-Agent": "Mozilla/5.0"}
+            r = requests.get(url, stream=True, timeout=60)
+            r.raise_for_status()
+            with open(output_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192*16):
+                    f.write(chunk)
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                return True
+        except Exception as e:
+            st.warning(f"Direct download failed: {e}. Trying fallback...")
+            # fall through to yt-dlp
+
+    # For non-Dropbox or if direct failed, try aria2c then yt-dlp
     try:
         cmd = ["aria2c", "-x", "16", "-s", "16", "-k", "1M", "--console-log-level=error", "-o", output_path, url]
         subprocess.run(cmd, check=True, timeout=600)
@@ -148,7 +163,7 @@ def download_file(url, output_path):
             return True
     except:
         pass
-    # yt-dlp
+
     if YT_DLP_AVAILABLE:
         try:
             ydl_opts = {'outtmpl': output_path, 'quiet': True}
@@ -157,8 +172,10 @@ def download_file(url, output_path):
             return os.path.exists(output_path)
         except:
             pass
-    # Direct HTTP
+
+    # Final fallback: direct HTTP (for non-Dropbox)
     try:
+        headers = {"User-Agent": "Mozilla/5.0"}
         r = requests.get(url, stream=True, timeout=60)
         r.raise_for_status()
         with open(output_path, "wb") as f:
@@ -266,7 +283,7 @@ with col_right:
                 st.error("Please provide a video link.")
                 st.stop()
             else:
-                with st.spinner("Downloading video from link..."):
+                with st.spinner("Downloading video..."):
                     video_path_input = "downloaded_video.mp4"
                     if not download_file(video_url, video_path_input):
                         st.error("Failed to download video. Check the link and try again.")
@@ -283,6 +300,7 @@ with col_right:
                 else:
                     st.success("Music downloaded successfully!")
         elif music_option == "Upload my own music":
+            # music_path already set
             pass
         else:
             music_path = None
@@ -308,7 +326,6 @@ with col_right:
             progress.progress(30)
             groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
             transcription = transcribe_audio_groq("extracted_audio.mp3", groq_client)
-            # The transcription object has a 'segments' attribute which is a list of dicts
             if hasattr(transcription, 'segments'):
                 segments = transcription.segments
             else:
@@ -336,7 +353,6 @@ with col_right:
 
             status.text("🎬 Burning subtitles and creating final video...")
             progress.progress(80)
-            # Only burn subtitles if we have an SRT file (i.e., segments were found)
             srt_file = "captions.srt" if os.path.exists("captions.srt") else None
             if srt_file and os.path.getsize(srt_file) > 0:
                 success = burn_subtitles(video_path_input, final_audio, srt_file, "final_output.mp4")
