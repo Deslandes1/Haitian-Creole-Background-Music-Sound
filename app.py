@@ -3,20 +3,21 @@ import os
 import subprocess
 import requests
 import shutil
+import re
 from groq import Groq
 
-# yt-dlp (optional, still used for YouTube)
+# yt-dlp (optional, only for YouTube)
 try:
     import yt_dlp
     YT_DLP_AVAILABLE = True
 except ImportError:
     YT_DLP_AVAILABLE = False
-    st.warning("yt-dlp not installed. For YouTube/Vimeo, install it: pip install yt-dlp")
+    st.warning("yt-dlp not installed. YouTube links may fail.")
 
 # ================== Check FFmpeg ==================
 FFMPEG_PATH = shutil.which("ffmpeg")
 if FFMPEG_PATH:
-    st.sidebar.success(f"✅ FFmpeg found: {FFMPEG_PATH}")
+    st.sidebar.success(f"✅ FFmpeg found")
 else:
     st.sidebar.error("❌ FFmpeg not found. Make sure 'packages.txt' contains 'ffmpeg' and redeploy.")
     st.stop()
@@ -68,7 +69,6 @@ def get_duration(file_path):
         return 0.0
     cmd = [FFMPEG_PATH, "-i", file_path, "-f", "null", "-"]
     result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
-    import re
     match = re.search(r"Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})", result.stderr)
     if match:
         h, m, s = match.groups()
@@ -133,29 +133,41 @@ def burn_subtitles(video_path, audio_path, srt_path, output_video):
     return os.path.exists(output_video)
 
 def download_file(url, output_path):
-    """Robust download for Dropbox (direct HTTP) and YouTube (yt-dlp)."""
-    # Handle Dropbox: convert to direct download and use requests
+    """Download a file – direct download for Dropbox, yt-dlp for others."""
+    # --- DROPBOX: Use direct HTTP download only ---
     if "dropbox.com" in url:
-        # Ensure dl=1
-        if "dl=0" in url:
-            url = url.replace("dl=0", "dl=1")
-        elif "?dl=" not in url:
-            url = url + "?dl=1"
-        # Direct HTTP download
+        # Convert to a direct download link
+        # Remove any ?dl=0 and replace with ?dl=1
+        # Also strip extra query parameters like ?rlkey=...
+        if "?dl=" in url:
+            url = re.sub(r'[?&]dl=[01]', '', url)
+        # Remove any rlkey parameter
+        url = re.sub(r'[?&]rlkey=[^&]*', '', url)
+        # Ensure we have ?dl=1
+        if "?" in url:
+            url += "&dl=1"
+        else:
+            url += "?dl=1"
+        # Also handle shared links that have /scl/fi/...?dl=0
+        # Already handled above.
         try:
             headers = {"User-Agent": "Mozilla/5.0"}
-            r = requests.get(url, stream=True, timeout=60)
-            r.raise_for_status()
+            response = requests.get(url, stream=True, timeout=120, headers=headers)
+            response.raise_for_status()
             with open(output_path, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192*16):
+                for chunk in response.iter_content(chunk_size=8192*16):
                     f.write(chunk)
             if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                 return True
+            else:
+                st.error(f"Dropbox download returned an empty file.")
+                return False
         except Exception as e:
-            st.warning(f"Direct download failed: {e}. Trying fallback...")
-            # fall through to yt-dlp
+            st.error(f"Direct Dropbox download failed: {e}")
+            return False
 
-    # For non-Dropbox or if direct failed, try aria2c then yt-dlp
+    # --- NON-DROPBOX (YouTube, direct MP4) ---
+    # Try aria2c
     try:
         cmd = ["aria2c", "-x", "16", "-s", "16", "-k", "1M", "--console-log-level=error", "-o", output_path, url]
         subprocess.run(cmd, check=True, timeout=600)
@@ -164,6 +176,7 @@ def download_file(url, output_path):
     except:
         pass
 
+    # Try yt-dlp
     if YT_DLP_AVAILABLE:
         try:
             ydl_opts = {'outtmpl': output_path, 'quiet': True}
@@ -173,10 +186,10 @@ def download_file(url, output_path):
         except:
             pass
 
-    # Final fallback: direct HTTP (for non-Dropbox)
+    # Final fallback: direct HTTP
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
-        r = requests.get(url, stream=True, timeout=60)
+        r = requests.get(url, stream=True, timeout=120)
         r.raise_for_status()
         with open(output_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192*16):
