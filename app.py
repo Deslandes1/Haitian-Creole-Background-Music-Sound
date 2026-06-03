@@ -88,6 +88,9 @@ def extract_audio(video_path, audio_output):
     return os.path.exists(abs_audio) and os.path.getsize(abs_audio) > 0
 
 def transcribe_audio_groq(audio_path, groq_client):
+    """
+    Koute odyo a epi transkri li an tan reyèl an Kreyòl Ayisyen
+    """
     with open(audio_path, "rb") as audio_file:
         transcription = groq_client.audio.transcriptions.create(
             file=(audio_path, audio_file.read()),
@@ -98,49 +101,30 @@ def transcribe_audio_groq(audio_path, groq_client):
         )
     return transcription
 
-def generate_srt_hardcoded(output_srt):
+def format_time_srt(seconds):
+    """Konvèti segonn an fòma tan SRT (HH:MM:SS,mmm)"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    milliseconds = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
+
+def convert_groq_json_to_srt(groq_data, output_srt):
     """
-    Mete tit yo dirèk ak bèl òtograf ofisyèl Kreyòl Ayisyen an 
-    pou asire yon bèl lekti san erè frap.
+    KOREKSYON DINAMIK: Pran done Groq yo pou chak videyo nèt
+    epi bati fichye SRT a otomatikman ak bon òtograf la.
     """
-    captions_content = """1
-00:00:00,000 --> 00:00:06,500
-Lè m ap gade sou oportinite anpil moun genyen kounye a,
-
-2
-00:00:07,700 --> 00:00:10,080
-avèk revolisyon de LIA,
-
-3
-00:00:11,900 --> 00:00:18,199
-avèk tout zouti teknoloji ki genyen pou moun aprann sou entènèt la,
-
-4
-00:00:19,859 --> 00:00:25,320
-epi nou wè gen moun ki pa pwofite de okazyon sa yo,
-
-5
-00:00:25,320 --> 00:00:28,980
-Paske nou menm Ayisyen,
-
-6
-00:00:28,980 --> 00:00:31,719
-Nou rate revolisyon endistriyèl.
-
-7
-00:00:31,719 --> 00:00:34,380
-Kounye a la, nou pral rate ankò
-
-8
-00:00:34,380 --> 00:00:36,420
-Yon lòt gwo revolisyon
-
-9
-00:00:36,420 --> 00:00:38,500
-Ki rele revolisyon de LIA."""
-    
+    srt_content = ""
+    if hasattr(groq_data, 'segments'):
+        for idx, segment in enumerate(groq_data.segments, start=1):
+            start_time = format_time_srt(segment['start'])
+            end_time = format_time_srt(segment['end'])
+            text = segment['text'].strip()
+            
+            srt_content += f"{idx}\n{start_time} --> {end_time}\n{text}\n\n"
+            
     with open(output_srt, "w", encoding="utf-8") as f:
-        f.write(captions_content.strip())
+        f.write(srt_content.strip())
 
 def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume=0.3):
     if not os.path.exists(music_audio) or os.path.getsize(music_audio) < 1000:
@@ -359,10 +343,15 @@ with col_right:
             if not extract_audio(video_path_input, "extracted_audio.mp3"):
                 raise Exception("Audio extraction failed.")
 
-            status.text("🎙️ Processing Haitian Creole speech tracks...")
+            status.text("🎙️ Processing Haitian Creole speech tracks via Groq Whisper...")
             progress.progress(40)
             
-            generate_srt_hardcoded("captions.srt")
+            # KOREKSYON: Rele Groq pou transkripsyon an tan reyèl
+            groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+            groq_data = transcribe_audio_groq("extracted_audio.mp3", groq_client)
+            
+            # Konvèti done yo an SRT dinamik pou nouvo videyo a
+            convert_groq_json_to_srt(groq_data, "captions.srt")
             st.success("✅ Tèks kreyòl la entegre ak siksè ak bèl òtograf!")
 
             final_audio = "extracted_audio.mp3"
