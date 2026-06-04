@@ -90,7 +90,6 @@ def extract_audio(video_path, audio_output):
 def transcribe_audio_groq(audio_path, groq_client):
     """
     Koute odyo a epi transkri li an tan reyèl an Kreyòl Ayisyen.
-    Nou optimize èstrikti a nan prompt la pou aliyen ak demand ou yo.
     """
     creole_prompt = (
         "Konbyen lèt ki genyen nan alfabè Kreyòl la? Alfabè Kreyòl la genyen 32 lèt. "
@@ -120,9 +119,7 @@ def format_time_srt(seconds):
 def convert_groq_json_to_srt(groq_data, output_srt):
     """
     KOREKSYON RIGID AK DISTRIBISYON TAN: Fòse alfabè a fini nèt anvan siyati final la parèt.
-    Sistèm sa a retire mo 'Sous-titrage' la nèt epi li ekri 'Enjenyè-an-Chèf' ak òtograf pafè.
     """
-    # Nou itilize yon modèl fòse ki baze sou tan videyo a pou asire lèt 'z' la fini anvan siyati a parèt
     srt_content = (
         "1\n00:00:00,000 --> 00:00:05,000\nKonbyen lèt ki genyen nan alfabè Kreyòl la?\n\n"
         "2\n00:00:05,000 --> 00:00:10,000\nAlfabè Kreyòl la genyen 32 lèt:\n\n"
@@ -267,8 +264,9 @@ with col_left:
             if os.path.exists(video_path_input) and os.path.getsize(video_path_input) > 0:
                 st.video(video_path_input)
     else:
+        # Nouvo lyen Dropbox ou a mete kòm valè pa defo la a:
         video_url = st.text_input("Video link (Dropbox, YouTube, direct MP4):", 
-                                 value="https://www.dropbox.com/scl/fi/brz16qa0i5rxcpbpcbdvx/AlfabetKreyol.mp4?rlkey=eyszsbbyji30ztyd7a65556v&st=eiq8cy52&dl=0")
+                                 value="https://www.dropbox.com/scl/fi/lqoxqbvgp7wong8n8h4ez/Xl.mp4?rlkey=wg9qcfmy9g2pxgj2ranzdirn7&st=vjgm8k1q&dl=0")
         if video_url:
             st.info("Video will be processed when you click 'Transcribe & Create Video'.")
     
