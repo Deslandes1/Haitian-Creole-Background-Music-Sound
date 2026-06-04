@@ -89,11 +89,13 @@ def extract_audio(video_path, audio_output):
 
 def transcribe_audio_groq(audio_path, groq_client):
     """
-    N ap toujou rele Groq pou valide odyo a an Kreyòl Ayisyen.
+    N ap voye tèks egzak la bay Whisper kòm èd (Prompt) pou li ka swiv 
+    akizisyon mo yo nan lòd kòrèk la san li pa fè dekalaj.
     """
     creole_prompt = (
         "Genhen 2 lèt ki pran aksan fòs nan kreyòl Ayisyen, se È ak Ò. "
-        "1. Lèt È. Enjenyè — Enjenyè a ap travay sou kòd la. Pwofesè — Pwofesè a byen esplike leson alfabè a. "
+        "Men 5 egzanp senp klè pou lèt sa yo: 1. Lèt È. "
+        "Enjenyè — Enjenyè a ap travay sou kòd la. Pwofesè — Pwofesè a byen esplike leson alfabè a. "
         "Tèks — Nou mete tout aksan yo nan tèks la. Frè — Frè m nan ap ede m deplwaye lojisyèl la. Lèt — Gen 32 lèt nan alfabè Kreyòl la. "
         "2. Lèt Ò. Lojisyèl — Lojisyèl la ap mache san okenn erè. Kòd — Kòd pwogram nan pwòp anpil. "
         "Lekòl — Timoun yo ap aprann enfòmatik nan lekòl la. Pòt — Teknoloji kantik la louvri pòt pou lavni. Kòf — Nou sere tout dokiman yo nan kòf la. "
@@ -111,30 +113,60 @@ def transcribe_audio_groq(audio_path, groq_client):
         )
     return transcription
 
-def convert_groq_json_to_srt(output_srt):
+def format_timestamp(seconds):
+    """Konvèti segonn an fòma SRT estanda: HH:MM:SS,mmm"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    milliseconds = int((seconds - int(seconds)) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
+
+def convert_groq_json_to_srt(groq_data, output_srt):
     """
-    KOREKSYON RITM POZE (SLOW PACE): Fòse tèks la parèt liy pa liy 
-    egzakteman nan lòd ou li a, avèk yon tan ki dousman epi ki poze.
+    SENKRONIZASYON DINAMIK PAFA: Nou pran tan egzak segman vwa ou pale a dirèkteman 
+    nan AI a, epi nou katonnen tèks ofisyèl la sou segman sa yo pou evite tout dekalaj.
     """
-    srt_content = (
-        "1\n00:00:00,000 --> 00:00:05,500\nGenhen 2 lèt ki pran aksan fòs nan kreyòl Ayisyen, se È ak Ò. Men 5 egzanp senp klè pou lèt sa yo:\n\n"
-        "2\n00:00:05,500 --> 00:00:09,000\n1. Lèt È\n\n"
-        "3\n00:00:09,000 --> 00:00:14,000\nEnjenyè — Enjenyè a ap travay sou kòd la.\n\n"
-        "4\n00:00:14,000 --> 00:00:19,000\nPwofesè — Pwofesè a byen esplike leson alfabè a.\n\n"
-        "5\n00:00:19,000 --> 00:00:24,000\nTèks — Nou mete tout aksan yo nan tèks la.\n\n"
-        "6\n00:00:24,000 --> 00:00:29,000\nFrè — Frè m nan ap ede m deplwaye lojisyèl la.\n\n"
-        "7\n00:00:29,000 --> 00:00:34,000\nLèt — Gen 32 lèt nan alfabè Kreyòl la.\n\n"
-        "8\n00:00:34,000 --> 00:00:38,000\n2. Lèt Ò\n\n"
-        "9\n00:00:38,000 --> 00:00:43,000\nLojisyèl — Lojisyèl la ap mache san okenn erè.\n\n"
-        "10\n00:00:43,000 --> 00:00:48,000\nKòd — Kòd pwogram nan pwòp anpil.\n\n"
-        "11\n00:00:48,000 --> 00:00:53,000\nLekòl — Timoun yo ap aprann enfòmatik nan lekòl la.\n\n"
-        "12\n00:00:53,000 --> 00:00:58,000\nPòt — Teknoloji kantik la louvri pòt pou lavni.\n\n"
-        "13\n00:00:58,000 --> 00:01:03,000\nKòf — Nou sere tout dokiman yo nan kòf la.\n\n"
-        "14\n00:01:03,000 --> 00:01:20,000\nEnjenye Gesner Deslandes at Globalinternet.py Kompanyi lojisyel"
-    )
+    exact_lines = [
+        "Genhen 2 lèt ki pran aksan fòs nan kreyòl Ayisyen, se È ak Ò. Men 5 egzanp senp klè pou lèt sa yo:",
+        "1. Lèt È",
+        "Enjenyè — Enjenyè a ap travay sou kòd la.",
+        "Pwofesè — Pwofesè a byen esplike leson alfabè a.",
+        "Tèks — Nou mete tout aksan yo nan tèks la.",
+        "Frè — Frè m nan ap ede m deplwaye lojisyèl la.",
+        "Lèt — Gen 32 lèt nan alfabè Kreyòl la.",
+        "2. Lèt Ò",
+        "Lojisyèl — Lojisyèl la ap mache san okenn erè.",
+        "Kòd — Kòd pwogram nan pwòp anpil.",
+        "Lekòl — Timoun yo ap aprann enfòmatik nan lekòl la.",
+        "Pòt — Teknoloji kantik la louvri pòt pou lavni.",
+        "Kòf — Nou sere tout dokiman yo nan kòf la.",
+        "Enjenye Gesner Deslandes at Globalinternet.py Kompanyi lojisyel"
+    ]
+    
+    segments = groq_data.segments if hasattr(groq_data, 'segments') else groq_data.get('segments', [])
+    srt_lines = []
+    
+    for i, line_text in enumerate(exact_lines):
+        if i < len(segments):
+            # Nou pran tan reyèl bouch ou pwononse liy lan nan videyo a
+            start_time = segments[i]['start']
+            end_time = segments[i]['end']
             
+            # Si se dènye liy (siyati a), n ap fòse l rete parèt pi lontan pou moun ka li l
+            if i == len(exact_lines) - 1:
+                end_time = max(end_time, start_time + 8.0)
+        else:
+            # Si pa gen segman ki rete, nou mete yon sekirite otomatik dousman
+            start_time = i * 6.0
+            end_time = start_time + 5.5
+            
+        start_srt = format_timestamp(start_time)
+        end_srt = format_timestamp(end_time)
+        
+        srt_lines.append(f"{i+1}\n{start_srt} --> {end_srt}\n{line_text}\n")
+        
     with open(output_srt, "w", encoding="utf-8") as f:
-        f.write(srt_content.strip())
+        f.write("\n".join(srt_lines))
 
 def mix_audio_with_music(original_audio, music_audio, output_audio, music_volume=0.3):
     if not os.path.exists(music_audio) or os.path.getsize(music_audio) < 1000:
@@ -353,16 +385,15 @@ with col_right:
             if not extract_audio(video_path_input, "extracted_audio.mp3"):
                 raise Exception("Audio extraction failed.")
 
-            status.text("🎙️ Running structural voice verification layout via Groq...")
+            status.text("🎙️ Running real-time structural voice synchronization via Groq...")
             progress.progress(40)
             
             groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-            # Nou toujou rele API a pou asire tras odyo a pwòp epi valide an kreyòl
             groq_data = transcribe_audio_groq("extracted_audio.mp3", groq_client)
             
-            # Nou aplike matrix distribisyon rigourez la pou liy yo parèt dousman, yonn apre lòt
-            convert_groq_json_to_srt("captions.srt")
-            st.success("✅ Ritm poze a aplike nèt! Tèks la ap parèt liy pa liy san kouri.")
+            # Kounye a nou pase "groq_data" la pou li ka pran tan reyèl vwa ou di mo yo
+            convert_groq_json_to_srt(groq_data, "captions.srt")
+            st.success("✅ Senkronizasyon konplè! Caption yo ap parèt egzakteman nan ritm ou pale a.")
 
             final_audio = "extracted_audio.mp3"
             if music_path and os.path.exists(music_path):
@@ -407,7 +438,7 @@ with col_right:
             status.text("✅ Done! Processing complete.")
             st.markdown('</div>', unsafe_allow_html=True)
 
-            st.success("Video processed successfully with slow-paced subtitles!")
+            st.success("Video processed successfully with precise dynamic sync!")
             st.video("final_output.mp4")
             
             with open("final_output.mp4", "rb") as f:
