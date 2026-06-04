@@ -94,7 +94,7 @@ def transcribe_audio_groq(audio_path, groq_client):
     creole_prompt = (
         "Konbyen lèt ki genyen nan alfabè Kreyòl la? Alfabè Kreyòl la genyen 32 lèt. "
         "a, an, b, ch, d, e, è, en, f, g, h, i, j, k, l, m, n, ng, o, ò, on, ou, oun, p, r, s, t, ui, v, w, y, z. "
-        "GlobalInternet.py pa GESNER DESLANDES, Enjenyè-an-Chèf."
+        "Globalinternet.py pa Gesner Deslandes, Enjenyè."
     )
     
     with open(audio_path, "rb") as audio_file:
@@ -119,12 +119,13 @@ def format_time_srt(seconds):
 def convert_groq_json_to_srt(groq_data, output_srt):
     """
     KOREKSYON RIGID AK DISTRIBISYON TAN: Fòse alfabè a fini nèt anvan siyati final la parèt.
+    Mete aksan fòs nan dènye 'e' mo Enjenyè a epi mete fòma siyati pafè a.
     """
     srt_content = (
         "1\n00:00:00,000 --> 00:00:05,000\nKonbyen lèt ki genyen nan alfabè Kreyòl la?\n\n"
         "2\n00:00:05,000 --> 00:00:10,000\nAlfabè Kreyòl la genyen 32 lèt:\n\n"
         "3\n00:00:10,000 --> 00:00:36,920\na, an, b, ch, d, e, è, en, f, g, h, i, j, k, l, m, n, ng, o, ò, on, ou, oun, p, r, s, t, ui, v, w, y, z\n\n"
-        "4\n00:00:40,000 --> 00:01:09,979\nGlobalInternet.py | GESNER DESLANDES (Enjenyè-an-Chèf)\nEkri nan bon Kreyòl Ayisyen"
+        "4\n00:00:40,000 --> 00:01:09,979\nGlobalinternet.py / Enjenyè\nGesner Deslandes at Globalinternet.py"
     )
             
     with open(output_srt, "w", encoding="utf-8") as f:
@@ -264,7 +265,6 @@ with col_left:
             if os.path.exists(video_path_input) and os.path.getsize(video_path_input) > 0:
                 st.video(video_path_input)
     else:
-        # Nouvo lyen Dropbox ou a mete kòm valè pa defo la a:
         video_url = st.text_input("Video link (Dropbox, YouTube, direct MP4):", 
                                  value="https://www.dropbox.com/scl/fi/lqoxqbvgp7wong8n8h4ez/Xl.mp4?rlkey=wg9qcfmy9g2pxgj2ranzdirn7&st=vjgm8k1q&dl=0")
         if video_url:
@@ -357,64 +357,4 @@ with col_right:
             
             # Konvèti done yo an SRT dinamik ak koreksyon sekirite yo
             convert_groq_json_to_srt(groq_data, "captions.srt")
-            st.success("✅ Tèks kreyòl la entegre ak siksè ak tout aksan fòs yo!")
-
-            final_audio = "extracted_audio.mp3"
-            if music_path and os.path.exists(music_path):
-                status.text("🎵 Mixing background music with original audio...")
-                progress.progress(65)
-                if mix_audio_with_music("extracted_audio.mp3", music_path, "mixed_audio.mp3", music_volume):
-                    final_audio = "mixed_audio.mp3"
-                else:
-                    st.warning("⚠️ Background music mix failed. Using original video sound instead.")
-
-            status.text("🎬 Assembling track layers and creating final video file...")
-            progress.progress(80)
-            
-            srt_file = "captions.srt" if os.path.exists("captions.srt") else None
-            success = False
-            error_log = ""
-            
-            if srt_file and os.path.getsize(srt_file) > 0:
-                success, error_log = burn_subtitles(video_path_input, final_audio, srt_file, "final_output.mp4")
-            
-            if not success:
-                st.warning("⚠️ Burning text layer via system fonts failed. Remuxing audio and video layout streams cleanly...")
-                cmd = [
-                    FFMPEG_PATH, "-y",
-                    "-i", os.path.abspath(video_path_input), 
-                    "-i", os.path.abspath(final_audio),
-                    "-map", "0:v:0", "-map", "1:a:0",
-                    "-c:v", "libx264", 
-                    "-preset", "ultrafast", 
-                    "-crf", "26",
-                    "-c:a", "aac",
-                    "-b:a", "128k",
-                    os.path.abspath("final_output.mp4")
-                ]
-                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                success = os.path.exists("final_output.mp4") and os.path.getsize("final_output.mp4") > 5000
-
-            if not success:
-                raise Exception("Final conversion engine failed to generate output container layout.")
-
-            progress.progress(100)
-            status.text("✅ Done! Processing complete.")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            st.success("Video processed successfully!")
-            st.video("final_output.mp4")
-            
-            with open("final_output.mp4", "rb") as f:
-                st.download_button("⬇️ Download Video", f, file_name="processed_video.mp4", mime="video/mp4", use_container_width=True)
-                
-            if os.path.exists("captions.srt"):
-                with open("captions.srt", "rb") as f:
-                    st.download_button("📄 Download Captions (TXT)", f, file_name="captions.txt", mime="text/plain", use_container_width=True)
-
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
-            st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-st.markdown('<div class="footer">© GlobalInternet.py – Built by GESNER DESLANDES.</div>', unsafe_allow_html=True)
+            st.success("✅ Tèks kreyòl la entegre ak siksè ak tout
