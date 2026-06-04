@@ -357,4 +357,64 @@ with col_right:
             
             # Konvèti done yo an SRT dinamik ak koreksyon sekirite yo
             convert_groq_json_to_srt(groq_data, "captions.srt")
-            st.success("✅ Tèks kreyòl la entegre ak siksè ak tout
+            st.success("✅ Tèks kreyòl la entegre ak siksè ak tout aksan fòs yo!")
+
+            final_audio = "extracted_audio.mp3"
+            if music_path and os.path.exists(music_path):
+                status.text("🎵 Mixing background music with original audio...")
+                progress.progress(65)
+                if mix_audio_with_music("extracted_audio.mp3", music_path, "mixed_audio.mp3", music_volume):
+                    final_audio = "mixed_audio.mp3"
+                else:
+                    st.warning("⚠️ Background music mix failed. Using original video sound instead.")
+
+            status.text("🎬 Assembling track layers and creating final video file...")
+            progress.progress(80)
+            
+            srt_file = "captions.srt" if os.path.exists("captions.srt") else None
+            success = False
+            error_log = ""
+            
+            if srt_file and os.path.getsize(srt_file) > 0:
+                success, error_log = burn_subtitles(video_path_input, final_audio, srt_file, "final_output.mp4")
+            
+            if not success:
+                st.warning("⚠️ Burning text layer via system fonts failed. Remuxing audio and video layout streams cleanly...")
+                cmd = [
+                    FFMPEG_PATH, "-y",
+                    "-i", os.path.abspath(video_path_input), 
+                    "-i", os.path.abspath(final_audio),
+                    "-map", "0:v:0", "-map", "1:a:0",
+                    "-c:v", "libx264", 
+                    "-preset", "ultrafast", 
+                    "-crf", "26",
+                    "-c:a", "aac",
+                    "-b:a", "128k",
+                    os.path.abspath("final_output.mp4")
+                ]
+                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                success = os.path.exists("final_output.mp4") and os.path.getsize("final_output.mp4") > 5000
+
+            if not success:
+                raise Exception("Final conversion engine failed to generate output container layout.")
+
+            progress.progress(100)
+            status.text("✅ Done! Processing complete.")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.success("Video processed successfully!")
+            st.video("final_output.mp4")
+            
+            with open("final_output.mp4", "rb") as f:
+                st.download_button("⬇️ Download Video", f, file_name="processed_video.mp4", mime="video/mp4", use_container_width=True)
+                
+            if os.path.exists("captions.srt"):
+                with open("captions.srt", "rb") as f:
+                    st.download_button("📄 Download Captions (TXT)", f, file_name="captions.txt", mime="text/plain", use_container_width=True)
+
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+            st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+st.markdown('<div class="footer">© GlobalInternet.py – Built by GESNER DESLANDES.</div>', unsafe_allow_html=True)
