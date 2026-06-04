@@ -265,8 +265,9 @@ with col_left:
             if os.path.exists(video_path_input) and os.path.getsize(video_path_input) > 0:
                 st.video(video_path_input)
     else:
+        # Nouvo lyen videyo Black.mp4 la mete kòm valè pa defo la a:
         video_url = st.text_input("Video link (Dropbox, YouTube, direct MP4):", 
-                                 value="https://www.dropbox.com/scl/fi/lqoxqbvgp7wong8n8h4ez/Xl.mp4?rlkey=wg9qcfmy9g2pxgj2ranzdirn7&st=vjgm8k1q&dl=0")
+                                 value="https://www.dropbox.com/scl/fi/tezc48qjjcfw4rfjc5zzs/Black.mp4?rlkey=i6rqr2eqgdvaol0z1r7n7jfa1&st=h2alstku&dl=0")
         if video_url:
             st.info("Video will be processed when you click 'Transcribe & Create Video'.")
     
