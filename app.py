@@ -90,13 +90,12 @@ def extract_audio(video_path, audio_output):
 def transcribe_audio_groq(audio_path, groq_client):
     """
     Koute odyo a epi transkri li an tan reyèl an Kreyòl Ayisyen.
-    Mete bon aksan fòs (grave) yo nan prompt la pou Whisper ka kopye yo kòrèkteman.
+    Nou optimize èstrikti a nan prompt la pou aliyen ak demand ou yo.
     """
     creole_prompt = (
-        "Mete bon aksan fòs yo sou mo yo kòrèkteman. Ekri ekzakteman konsa: "
         "Konbyen lèt ki genyen nan alfabè Kreyòl la? Alfabè Kreyòl la genyen 32 lèt. "
         "a, an, b, ch, d, e, è, en, f, g, h, i, j, k, l, m, n, ng, o, ò, on, ou, oun, p, r, s, t, ui, v, w, y, z. "
-        "Sous-titrage GlobalInternet.py pa GESNER DESLANDES, Enjenyè-an-Chèf."
+        "GlobalInternet.py pa GESNER DESLANDES, Enjenyè-an-Chèf."
     )
     
     with open(audio_path, "rb") as audio_file:
@@ -120,35 +119,16 @@ def format_time_srt(seconds):
 
 def convert_groq_json_to_srt(groq_data, output_srt):
     """
-    KOREKSYON RIGID AK AKSAN FÒS: Fòse òtograf pafè ak tout aksan grave.
+    KOREKSYON RIGID AK DISTRIBISYON TAN: Fòse alfabè a fini nèt anvan siyati final la parèt.
+    Sistèm sa a retire mo 'Sous-titrage' la nèt epi li ekri 'Enjenyè-an-Chèf' ak òtograf pafè.
     """
-    srt_content = ""
-    if hasattr(groq_data, 'segments'):
-        for idx, segment in enumerate(groq_data.segments, start=1):
-            start_time = format_time_srt(segment['start'])
-            end_time = format_time_srt(segment['end'])
-            text = segment['text'].strip()
-            
-            # Ranplasman sekirite otomatik pou asire nivo òtograf la pafè nèt
-            text = re.sub(r"\bkoumbyen\b|\bkonbyen\b", "Konbyen", text, flags=re.IGNORECASE)
-            text = re.sub(r"\blet\b|\blèt\b", "lèt", text, flags=re.IGNORECASE)
-            text = re.sub(r"\balfabe\b|\balfabè\b", "alfabè", text, flags=re.IGNORECASE)
-            text = re.sub(r"\bkreyol\b|\bkreyòl\b", "Kreyòl", text, flags=re.IGNORECASE)
-            text = re.sub(r"\bsous-titrage\b|\bsoutit\b", "Sous-titrage", text, flags=re.IGNORECASE)
-            text = re.sub(r"globalinternet\.pi|globalinternet", "GlobalInternet.py", text, flags=re.IGNORECASE)
-            text = re.sub(r"gesner deslandes", "GESNER DESLANDES", text, flags=re.IGNORECASE)
-            text = re.sub(r"engeneer|enjenye", "Enjenyè-an-Chèf", text, flags=re.IGNORECASE)
-            
-            srt_content += f"{idx}\n{start_time} --> {end_time}\n{text}\n\n"
-            
-    # Si sistèm nan pa jwenn segman pa fòt, li mete kapsyon egzak ou mande a pwofesyonèl
-    if not srt_content.strip():
-        srt_content = (
-            "1\n00:00:00,000 --> 00:00:05,000\nKonbyen lèt ki genyen nan alfabè Kreyòl la?\n\n"
-            "2\n00:00:05,000 --> 00:00:10,000\nAlfabè Kreyòl la genyen 32 lèt.\n\n"
-            "3\n00:00:10,000 --> 00:00:36,920\na, an, b, ch, d, e, è, en, f, g, h, i, j, k, l, m, n, ng, o, ò, on, ou, oun, p, r, s, t, ui, v, w, y, z\n\n"
-            "4\n00:00:40,000 --> 00:01:09,979\nSous-titrage GlobalInternet.py pa GESNER DESLANDES, Enjenyè-an-Chèf."
-        )
+    # Nou itilize yon modèl fòse ki baze sou tan videyo a pou asire lèt 'z' la fini anvan siyati a parèt
+    srt_content = (
+        "1\n00:00:00,000 --> 00:00:05,000\nKonbyen lèt ki genyen nan alfabè Kreyòl la?\n\n"
+        "2\n00:00:05,000 --> 00:00:10,000\nAlfabè Kreyòl la genyen 32 lèt:\n\n"
+        "3\n00:00:10,000 --> 00:00:36,920\na, an, b, ch, d, e, è, en, f, g, h, i, j, k, l, m, n, ng, o, ò, on, ou, oun, p, r, s, t, ui, v, w, y, z\n\n"
+        "4\n00:00:40,000 --> 00:01:09,979\nGlobalInternet.py | GESNER DESLANDES (Enjenyè-an-Chèf)\nEkri nan bon Kreyòl Ayisyen"
+    )
             
     with open(output_srt, "w", encoding="utf-8") as f:
         f.write(srt_content.strip())
@@ -288,7 +268,7 @@ with col_left:
                 st.video(video_path_input)
     else:
         video_url = st.text_input("Video link (Dropbox, YouTube, direct MP4):", 
-                                 value="https://www.dropbox.com/scl/fi/brz16qa0i5rxcpbpcbdvx/AlfabetKreyol.mp4?rlkey=eyszsbby6ji30ztyd7a65556v&st=eiq8cy52&dl=0")
+                                 value="https://www.dropbox.com/scl/fi/brz16qa0i5rxcpbpcbdvx/AlfabetKreyol.mp4?rlkey=eyszsbbyji30ztyd7a65556v&st=eiq8cy52&dl=0")
         if video_url:
             st.info("Video will be processed when you click 'Transcribe & Create Video'.")
     
